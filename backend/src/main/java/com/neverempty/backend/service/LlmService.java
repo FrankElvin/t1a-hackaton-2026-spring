@@ -30,8 +30,10 @@ public class LlmService {
             The user will provide the raw text or HTML of an order confirmation or receipt email.
             Extract every purchased item and return a JSON array.
             Each element must have:
-            - "name": product name
-            - "quantity": numeric quantity (default 1)
+            - "name": the FULL, human-readable product name. If the name is abbreviated or truncated, \
+            expand it into a proper, recognizable product name in the original language.
+            - "quantity": numeric quantity (e.g. 10 for "10szt", 2 for "2l", 500 for "500g", default 1)
+            - "unit": measurement unit - extract from product name: "szt"/"pcs" for pieces, "L"/"l"/"ml" for volume, "g"/"kg" for weight. Use "pcs" when no unit in name.
             - "priceAmount": unit price as a number (e.g. 12.99)
             - "priceCurrency": 3-letter currency code (e.g. "USD", "EUR")
             - "shop": store/merchant name if identifiable, else null
@@ -45,8 +47,13 @@ public class LlmService {
             The user will provide raw OCR text extracted from a receipt photo.
             Extract every purchased item and return a JSON array.
             Each element must have:
-            - "name": product name as it appears on the receipt
-            - "quantity": numeric quantity (default 1)
+            - "name": the FULL, human-readable product name. Receipt text is often abbreviated \
+            (e.g. "Mleko sw 2%" → "Mleko świeże 2%", "Jaj Niespodz 20g" → "Jajko Niespodzianka 20g", \
+            "Mar Rana 550g" → "Margaryna Rama 550g", "Cuk dr Dianant 1kg" → "Cukier Diamant 1kg", \
+            "Sok Pon Riviva 2l" → "Sok Pomarańczowy Riviva 2l"). \
+            Always expand abbreviations into proper, recognizable product names in the original language.
+            - "quantity": numeric quantity (e.g. 10 for "10szt", 2 for "2l", 500 for "500g", default 1)
+            - "unit": measurement unit - extract from product name: "szt"/"pcs" for pieces, "L"/"l"/"ml" for volume, "g"/"kg" for weight. Use "pcs" when no unit in name.
             - "priceAmount": unit price as a number
             - "priceCurrency": 3-letter currency code (e.g. "USD")
             - "shop": store name if visible at the top/bottom of receipt, else null
@@ -62,6 +69,31 @@ public class LlmService {
             Return ONLY the category string, nothing else.
             """;
 
+    private static final String BATCH_CLASSIFY_PROMPT = """
+            You are a household product classifier and consumption estimator.
+            Given a JSON array of products, classify each one and estimate how many days \
+            until a typical household runs out of it.
+
+            Valid categories: grocery, household, pharmacy, pet, baby, electronics, clothing, other.
+
+            Realistic consumption guidelines:
+            - Milk (1L): ~3-5 days
+            - Bread (500g): ~3-4 days
+            - Eggs (10 pcs): ~7-10 days
+            - Butter/Margarine (200-500g): ~14-21 days
+            - Sugar (1kg): ~30-60 days
+            - Oil (1L): ~30-45 days
+            - Juice (1-2L): ~3-7 days
+            - Cheese (200-400g): ~7-14 days
+            - Cleaning products: ~30-90 days
+            - Personal care: ~30-60 days
+            Scale estimates based on actual quantity and number of consumers.
+
+            Return ONLY a JSON array (no markdown fences) with one object per product:
+            [{"name":"...","category":"...","runoutDays":...}, ...]
+            The "name" must match the input exactly. "runoutDays" must be a positive integer.
+            """;
+
     private static final String SUGGEST_CONSUMERS_PROMPT = """
             You are a household consumption advisor.
             Given a product name and a list of household member categories,
@@ -74,9 +106,20 @@ public class LlmService {
 
     private static final String ESTIMATE_RUNOUT_PROMPT = """
             You are a household consumption estimator.
-            Given a product with its name, quantity, category, consumers, and last_bought date,
-            estimate the number of days until this product runs out.
-            Consider product type and typical consumption rates, and the number of consumers.
+            Given a product with its name, quantity, category, and consumers,
+            estimate the number of days until this product runs out for a typical household.
+            Consider realistic consumption patterns:
+            - Milk (1L): ~3-5 days
+            - Bread (500g): ~3-4 days
+            - Eggs (10 pcs): ~7-10 days
+            - Butter/Margarine (200-500g): ~14-21 days
+            - Sugar (1kg): ~30-60 days
+            - Oil (1L): ~30-45 days
+            - Juice (1-2L): ~3-7 days
+            - Cheese (200-400g): ~7-14 days
+            - Cleaning products: ~30-90 days
+            - Personal care: ~30-60 days
+            Scale estimates based on actual quantity and number of consumers.
             Return ONLY an integer (number of days). Nothing else.
             """;
 
@@ -96,10 +139,17 @@ public class LlmService {
 
     public record ParsedProduct(
             String name,
-            int quantity,
+            double quantity,
+            String unit,
             double priceAmount,
             String priceCurrency,
             String shop
+    ) {}
+
+    public record ClassifiedProduct(
+            String name,
+            String category,
+            int runoutDays
     ) {}
 
     public List<ParsedProduct> parseEmail(String emailBody) {
@@ -114,6 +164,23 @@ public class LlmService {
 
     public String classifyCategory(String productName) {
         return callLlm(CLASSIFY_CATEGORY_PROMPT, productName).toLowerCase().trim();
+    }
+
+    /**
+     * Classify all products in a single LLM call: category + runout days.
+     */
+    public List<ClassifiedProduct> classifyAll(List<ParsedProduct> products) {
+        var input = products.stream()
+                .map(p -> Map.of("name", p.name(), "quantity", p.quantity()))
+                .toList();
+        String userContent;
+        try {
+            userContent = objectMapper.writeValueAsString(input);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize products for batch classification", e);
+        }
+        var raw = callLlm(BATCH_CLASSIFY_PROMPT, userContent);
+        return parseJsonList(raw, new TypeReference<>() {});
     }
 
     public List<String> suggestConsumers(String productName, List<String> householdCategories) {
