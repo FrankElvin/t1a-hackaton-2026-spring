@@ -1,0 +1,7 @@
+t1aclmllmagents.click {
+    reverse_proxy frontend:80
+}
+
+keycloak.t1aclmllmagents.click {
+    reverse_proxy keycloak:8080
+}

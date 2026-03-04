@@ -1,0 +1,142 @@
+services:
+
+  # -- manual
+  caddy:
+    image: caddy:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+
+  # ── Data stores ──────────────────────────────────────────────────────────────
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-keycloak}
+      POSTGRES_USER: ${POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-keycloak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ── Auth ─────────────────────────────────────────────────────────────────────
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    # start-dev is suitable for demo; for production replace with: start --optimized
+    command: start-dev
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-keycloak}
+      KC_DB_USERNAME: ${POSTGRES_USER:-keycloak}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Public URL that browsers and backend both use (see networking note in .env)
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+        #ports:
+        #  - "${KEYCLOAK_PORT:-9090}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    #healthcheck:
+    #  # Use CMD (direct exec) — the Keycloak ubi9-micro image has no /bin/sh
+    #  test: ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"]
+    #  interval: 15s
+    #  timeout: 10s
+    #  retries: 20
+    #  start_period: 90s
+    networks:
+      - internal
+
+  # ── Backend ───────────────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-never_empty}
+      # Must match the 'iss' claim in tokens (i.e. KC_HOSTNAME — the public URL)
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL}/realms/${KEYCLOAK_REALM:-neverempty}
+      # Fetch signing keys via internal Docker DNS — bypasses the discovery endpoint,
+      # which would return public localhost URLs unreachable from inside the container
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-neverempty}/protocol/openid-connect/certs
+      BACKEND_PORT: 8080
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://litellm.secondstack.t1a.io/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      CREDENTIALS_PATH: /app/credentials/google-credentials.json
+      GMAIL_IMPERSONATE_EMAIL: ${GMAIL_IMPERSONATE_EMAIL:-}
+      BARCODE_LOOKUP_KEY: ${BARCODE_LOOKUP_KEY:-}
+      NOTIFICATION_SOON_DAYS: ${NOTIFICATION_SOON_DAYS:-3}
+    volumes:
+      - ${GOOGLE_CREDENTIALS_FILE:-./google-credentials.json}:/app/credentials/google-credentials.json:ro
+    ports:
+      - "${BACKEND_PORT:-8081}:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    networks:
+      - internal
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      # Vite embeds these at build time — changing them requires a rebuild
+      args:
+        VITE_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL}
+        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-neverempty}
+        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-household-ui}
+        VITE_MOCK_AUTH: ${VITE_MOCK_AUTH:-false}
+    restart: unless-stopped
+    #ports:
+    #  - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+volumes:
+  mongodb_data:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge
