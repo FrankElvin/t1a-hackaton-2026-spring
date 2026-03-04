@@ -10,6 +10,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -28,10 +29,27 @@ public class Household {
     private String userId;
 
     @Builder.Default
+    private boolean active = true;
+
+    @Builder.Default
     private List<Member> members = new ArrayList<>();
 
     @Builder.Default
     private List<Pet> pets = new ArrayList<>();
+
+    @Builder.Default
+    private Lock lock = new Lock();
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class Lock {
+        @Builder.Default
+        private boolean locked = false;
+        private String by;
+        private Instant until;
+    }
 
     @Data
     @NoArgsConstructor
