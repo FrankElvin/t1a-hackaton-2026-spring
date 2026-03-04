@@ -1,5 +1,5 @@
 {
-    "userId": "str",
+    "user_id": "str",
     "inhabs": [
       {
           "adult": 2,
@@ -13,7 +13,9 @@
         "by": "executor-name",
         "until": "date"
     },
-    "prod_categories": [
-        "manual input", "data", "from web form"
+    "available_prod_categories": [
+        "manual input",
+        "data",
+        "from web form"
     ]
 }

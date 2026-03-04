@@ -1,5 +1,5 @@
 {
-    "owner": "str, userId",
+    "owner": "str, user_id",
     "name": "str",
     "category": "product category, optional",
     "quantity": 1,
@@ -9,7 +9,7 @@
         "currency": "str, 3-letter currency code",
         "amount": 2
     },
-    "assinged_inhabs": [
+    "consumers": [
         "inhab categories; default - adult (one item)",
         "adult", 
         "child"
