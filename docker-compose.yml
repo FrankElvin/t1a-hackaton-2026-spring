@@ -1,0 +1,126 @@
+services:
+
+  # ── Data stores ──────────────────────────────────────────────────────────────
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-keycloak}
+      POSTGRES_USER: ${POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-keycloak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ── Auth ─────────────────────────────────────────────────────────────────────
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    # start-dev is suitable for demo; for production replace with: start --optimized
+    command: start-dev
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-keycloak}
+      KC_DB_USERNAME: ${POSTGRES_USER:-keycloak}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Public URL that browsers and backend both use (see networking note in .env)
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-9090}
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "${KEYCLOAK_PORT:-9090}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - internal
+
+  # ── Backend ───────────────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    # Allows 'localhost' inside the container to resolve to the Docker host,
+    # so the backend can reach Keycloak via the same public URL the browser uses.
+    extra_hosts:
+      - "localhost:host-gateway"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-never_empty}
+      KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-9090}/realms/${KEYCLOAK_REALM:-neverempty}
+      BACKEND_PORT: 8080
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://litellm.secondstack.t1a.io/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      CREDENTIALS_PATH: /app/credentials/google-credentials.json
+      GMAIL_IMPERSONATE_EMAIL: ${GMAIL_IMPERSONATE_EMAIL:-}
+      BARCODE_LOOKUP_KEY: ${BARCODE_LOOKUP_KEY:-}
+      NOTIFICATION_SOON_DAYS: ${NOTIFICATION_SOON_DAYS:-3}
+    volumes:
+      - ${GOOGLE_CREDENTIALS_FILE:-./google-credentials.json}:/app/credentials/google-credentials.json:ro
+    ports:
+      - "${BACKEND_PORT:-8081}:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      # Vite embeds these at build time — changing them requires a rebuild
+      args:
+        VITE_KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-9090}
+        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-neverempty}
+        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-household-ui}
+        VITE_MOCK_AUTH: ${VITE_MOCK_AUTH:-false}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+volumes:
+  mongodb_data:
+  postgres_data:
+
+networks:
+  internal:
+    driver: bridge
