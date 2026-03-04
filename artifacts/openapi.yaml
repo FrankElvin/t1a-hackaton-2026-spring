@@ -1,0 +1,1084 @@
+openapi: 3.0.3
+info:
+  title: Household Resource Planner API
+  description: |
+    API for tracking household consumables, forecasting depletion, and generating smart shopping lists.
+
+    ## Authentication
+    All endpoints require a valid JWT bearer token issued by Keycloak.
+
+    ## Calculation Date
+    All forecast, shopping-list, and dashboard operations are computed relative to a **calculationDate**
+    variable stored server-side per user. By default it equals today's date.
+    Use `GET /settings/calculation-date` to read it and `PUT /settings/calculation-date` to change it —
+    for example to simulate a future date during a demo.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://your-host/api/v1
+    description: Production
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    # ─── Enums ───────────────────────────────────────────────────────────────
+
+    PersonCategory:
+      type: string
+      enum: [ADULT, CHILD]
+
+    PetCategory:
+      type: string
+      enum: [CAT, DOG, PARROT, SMALL_ANIMAL, OTHER]
+
+    ConsumerCategory:
+      type: string
+      enum: [ADULT, CHILD, CAT, DOG, PARROT, SMALL_ANIMAL]
+      description: Who this product is primarily consumed by
+
+    ItemCategory:
+      type: string
+      enum:
+        - FOOD
+        - BEVERAGES
+        - CLEANING
+        - PERSONAL_CARE
+        - PET_FOOD
+        - MEDICINE
+        - OTHER
+
+    NotificationChannel:
+      type: string
+      enum: [EMAIL]
+
+    # ─── Household ───────────────────────────────────────────────────────────
+
+    HouseholdMember:
+      type: object
+      required: [category]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          example: Alice
+        category:
+          $ref: '#/components/schemas/PersonCategory'
+
+    Pet:
+      type: object
+      required: [category]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          example: Whiskers
+        category:
+          $ref: '#/components/schemas/PetCategory'
+
+    Household:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/HouseholdMember'
+        pets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pet'
+
+    # ─── Store ───────────────────────────────────────────────────────────────
+
+    Store:
+      type: object
+      required: [name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          example: Magnit
+        visitIntervalDays:
+          type: integer
+          description: How often the user visits this store (days between visits)
+          example: 21
+        lastVisitDate:
+          type: string
+          format: date
+          description: Date of the last visit to this store
+
+    # ─── Item ────────────────────────────────────────────────────────────────
+
+    Item:
+      type: object
+      required: [name, currentQuantity, unit]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          example: Oat milk
+        category:
+          $ref: '#/components/schemas/ItemCategory'
+        currentQuantity:
+          type: number
+          format: double
+          description: Current amount in stock
+          example: 2.5
+        unit:
+          type: string
+          description: Unit of measurement (liters, kg, pcs, etc.)
+          example: L
+        storeId:
+          type: string
+          format: uuid
+          description: Preferred store to buy this item
+        price:
+          type: number
+          format: double
+          example: 89.99
+        consumerCategory:
+          $ref: '#/components/schemas/ConsumerCategory'
+        monthlyConsumptionRate:
+          type: number
+          format: double
+          description: |
+            Manual override for consumption rate (units per month).
+            If null, the app infers it from purchase history.
+          example: 8.0
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CreateItemRequest:
+      type: object
+      required: [name, currentQuantity, unit]
+      properties:
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/ItemCategory'
+        currentQuantity:
+          type: number
+          format: double
+        unit:
+          type: string
+        storeId:
+          type: string
+          format: uuid
+        price:
+          type: number
+          format: double
+        consumerCategory:
+          $ref: '#/components/schemas/ConsumerCategory'
+        monthlyConsumptionRate:
+          type: number
+          format: double
+
+    UpdateItemRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateItemRequest'
+
+    MarkConsumedRequest:
+      type: object
+      description: Report that an item has been partially or fully used
+      properties:
+        quantityConsumed:
+          type: number
+          format: double
+          description: How much was consumed. If omitted, item is marked as fully depleted.
+          example: 1.0
+        depletedAt:
+          type: string
+          format: date
+          description: Date of consumption (defaults to today)
+
+    SetConsumptionRateRequest:
+      type: object
+      required: [monthlyRate]
+      properties:
+        monthlyRate:
+          type: number
+          format: double
+          description: Units of this item consumed per month
+          example: 6.0
+
+    # ─── Import ──────────────────────────────────────────────────────────────
+
+    ImportReceiptResponse:
+      type: object
+      properties:
+        importedItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+        unrecognizedLines:
+          type: array
+          items:
+            type: string
+          description: Lines from the receipt that could not be matched to known items
+
+    ImportEmailRequest:
+      type: object
+      required: [rawEmail]
+      properties:
+        rawEmail:
+          type: string
+          description: Full raw email content (EML format or plain text body) from a store
+
+    # ─── Forecast ────────────────────────────────────────────────────────────
+
+    ItemForecast:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        itemName:
+          type: string
+        currentQuantity:
+          type: number
+          format: double
+        unit:
+          type: string
+        estimatedDailyConsumption:
+          type: number
+          format: double
+        estimatedDepletionDate:
+          type: string
+          format: date
+          description: Predicted date when the item will run out
+        daysUntilDepletion:
+          type: integer
+        percentRemaining:
+          type: number
+          format: double
+          description: Estimated percentage of stock remaining (0–100)
+        calculationDate:
+          type: string
+          format: date
+          description: The reference date used for this forecast (may differ from today if timeskip is active)
+
+    ForecastResponse:
+      type: object
+      properties:
+        calculationDate:
+          type: string
+          format: date
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemForecast'
+
+    # ─── Shopping List ────────────────────────────────────────────────────────
+
+    ShoppingListEntry:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        itemName:
+          type: string
+        requiredQuantity:
+          type: number
+          format: double
+        unit:
+          type: string
+        price:
+          type: number
+          format: double
+        estimatedDepletionDate:
+          type: string
+          format: date
+        urgent:
+          type: boolean
+          description: True if the item will run out before the next planned store visit
+
+    ShoppingList:
+      type: object
+      properties:
+        storeId:
+          type: string
+          format: uuid
+        storeName:
+          type: string
+        nextVisitDate:
+          type: string
+          format: date
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShoppingListEntry'
+        totalEstimatedCost:
+          type: number
+          format: double
+
+    ShoppingListsResponse:
+      type: object
+      properties:
+        calculationDate:
+          type: string
+          format: date
+        lists:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShoppingList'
+
+    # ─── Notifications ───────────────────────────────────────────────────────
+
+    NotificationSettings:
+      type: object
+      properties:
+        channel:
+          $ref: '#/components/schemas/NotificationChannel'
+        email:
+          type: string
+          format: email
+        enabled:
+          type: boolean
+        notifyDaysBeforeDepletion:
+          type: integer
+          description: Send alert when an item has this many days left
+          example: 5
+        lookAheadDays:
+          type: integer
+          description: Window used when compiling the "expiring soon" digest (e.g., 7 days)
+          example: 7
+
+    # ─── Dashboard ───────────────────────────────────────────────────────────
+
+    DashboardSummary:
+      type: object
+      properties:
+        calculationDate:
+          type: string
+          format: date
+        criticalItems:
+          type: array
+          description: Items depleting within notifyDaysBeforeDepletion
+          items:
+            $ref: '#/components/schemas/ItemForecast'
+        upcomingPurchases:
+          type: array
+          description: Items depleting within the next 30 days (not yet critical)
+          items:
+            $ref: '#/components/schemas/ItemForecast'
+        stockLevels:
+          type: array
+          description: All items with current stock percentage
+          items:
+            $ref: '#/components/schemas/ItemForecast'
+
+    # ─── Settings ────────────────────────────────────────────────────────────
+
+    CalculationDateSettings:
+      type: object
+      properties:
+        calculationDate:
+          type: string
+          format: date
+          description: |
+            The reference date used by all forecast, shopping-list, and dashboard calculations.
+            Defaults to the current date. Set to a future date to simulate timeskip.
+          example: "2026-06-01"
+        isOverridden:
+          type: boolean
+          description: True when the date has been manually set and differs from today
+          readOnly: true
+
+    # ─── Common ──────────────────────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+
+
+# ─── Paths ───────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── Household ──────────────────────────────────────────────────────────────
+
+  /household:
+    get:
+      tags: [Household]
+      summary: Get household profile
+      operationId: getHousehold
+      responses:
+        '200':
+          description: Household profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Household'
+        '404':
+          description: No household profile found for this user
+    put:
+      tags: [Household]
+      summary: Create or fully replace household profile
+      operationId: upsertHousehold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Household'
+      responses:
+        '200':
+          description: Updated household
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Household'
+
+  /household/members:
+    post:
+      tags: [Household]
+      summary: Add a household member
+      operationId: addMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdMember'
+      responses:
+        '201':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdMember'
+
+  /household/members/{memberId}:
+    delete:
+      tags: [Household]
+      summary: Remove a household member
+      operationId: removeMember
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Member removed
+        '404':
+          description: Member not found
+
+  /household/pets:
+    post:
+      tags: [Household]
+      summary: Add a pet
+      operationId: addPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pet'
+      responses:
+        '201':
+          description: Pet added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+
+  /household/pets/{petId}:
+    delete:
+      tags: [Household]
+      summary: Remove a pet
+      operationId: removePet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Pet removed
+        '404':
+          description: Pet not found
+
+  # ── Stores ─────────────────────────────────────────────────────────────────
+
+  /stores:
+    get:
+      tags: [Stores]
+      summary: List all stores
+      operationId: listStores
+      responses:
+        '200':
+          description: List of stores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Store'
+    post:
+      tags: [Stores]
+      summary: Add a store
+      operationId: createStore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Store'
+      responses:
+        '201':
+          description: Store created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+
+  /stores/{storeId}:
+    get:
+      tags: [Stores]
+      summary: Get a store
+      operationId: getStore
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Store details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        '404':
+          description: Store not found
+    put:
+      tags: [Stores]
+      summary: Update a store
+      operationId: updateStore
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Store'
+      responses:
+        '200':
+          description: Updated store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        '404':
+          description: Store not found
+    delete:
+      tags: [Stores]
+      summary: Delete a store
+      operationId: deleteStore
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Store deleted
+        '404':
+          description: Store not found
+
+  # ── Items ──────────────────────────────────────────────────────────────────
+
+  /items:
+    get:
+      tags: [Items]
+      summary: List all tracked items
+      operationId: listItems
+      parameters:
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/ItemCategory'
+        - name: storeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Item'
+    post:
+      tags: [Items]
+      summary: Add a new item to track
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateItemRequest'
+      responses:
+        '201':
+          description: Item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+
+  /items/{itemId}:
+    get:
+      tags: [Items]
+      summary: Get an item
+      operationId: getItem
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Item details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Item not found
+    put:
+      tags: [Items]
+      summary: Update an item
+      operationId: updateItem
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateItemRequest'
+      responses:
+        '200':
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Item not found
+    delete:
+      tags: [Items]
+      summary: Stop tracking an item
+      operationId: deleteItem
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Item deleted
+        '404':
+          description: Item not found
+
+  /items/{itemId}/consumed:
+    post:
+      tags: [Items]
+      summary: Report consumption (or mark item as fully depleted)
+      operationId: markConsumed
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkConsumedRequest'
+      responses:
+        '200':
+          description: Updated item after consumption recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Item not found
+
+  /items/{itemId}/consumption-rate:
+    put:
+      tags: [Items]
+      summary: Manually set monthly consumption rate for an item
+      description: |
+        Corresponds to user saying "I need X units of product Y per month".
+        Overrides the app's automatic inference.
+      operationId: setConsumptionRate
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConsumptionRateRequest'
+      responses:
+        '200':
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Item not found
+
+  # ── Import ─────────────────────────────────────────────────────────────────
+
+  /items/import/receipt:
+    post:
+      tags: [Import]
+      summary: Import items from a receipt photo
+      description: Upload a photo of a store receipt. The image is processed (via Amazon Textract or similar) to extract purchased items and quantities.
+      operationId: importFromReceipt
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Receipt photo (JPEG or PNG)
+                storeId:
+                  type: string
+                  format: uuid
+                  description: Associate all imported items with this store
+      responses:
+        '200':
+          description: Imported items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportReceiptResponse'
+        '422':
+          description: Could not parse the receipt image
+
+  /items/import/email:
+    post:
+      tags: [Import]
+      summary: Import items from a forwarded store email
+      description: Parse a raw email from a store (e.g., an order confirmation) and extract purchased items.
+      operationId: importFromEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportEmailRequest'
+      responses:
+        '200':
+          description: Imported items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportReceiptResponse'
+        '422':
+          description: Could not parse the email content
+
+  # ── Forecast ───────────────────────────────────────────────────────────────
+
+  /forecast:
+    get:
+      tags: [Forecast]
+      summary: Get depletion forecast for all items
+      operationId: getForecast
+      responses:
+        '200':
+          description: Forecast for all tracked items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastResponse'
+
+  /forecast/{itemId}:
+    get:
+      tags: [Forecast]
+      summary: Get depletion forecast for a specific item
+      operationId: getItemForecast
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Forecast for the item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemForecast'
+        '404':
+          description: Item not found
+
+  # ── Shopping Lists ─────────────────────────────────────────────────────────
+
+  /shopping-lists:
+    get:
+      tags: [Shopping Lists]
+      summary: Get all shopping lists grouped by store
+      description: |
+        Returns one shopping list per store, containing all items predicted to run out
+        before the next planned visit to that store.
+      operationId: getShoppingLists
+      responses:
+        '200':
+          description: Shopping lists per store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingListsResponse'
+
+  /shopping-lists/{storeId}:
+    get:
+      tags: [Shopping Lists]
+      summary: Get shopping list for a specific store
+      operationId: getShoppingListByStore
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Shopping list for the store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingList'
+        '404':
+          description: Store not found
+
+  # ── Settings ───────────────────────────────────────────────────────────────
+
+  /settings/calculation-date:
+    get:
+      tags: [Settings]
+      summary: Get the current calculation date
+      description: |
+        Returns the date used as "today" in all forecast, shopping-list, and dashboard calculations.
+        Equals the actual current date unless manually overridden.
+      operationId: getCalculationDate
+      responses:
+        '200':
+          description: Current calculation date settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculationDateSettings'
+    put:
+      tags: [Settings]
+      summary: Set the calculation date
+      description: |
+        Override the reference date used in all calculations. Set to a future date to preview
+        what the app would show at that point in time. Reset to today by passing today's date.
+      operationId: setCalculationDate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculationDateSettings'
+      responses:
+        '200':
+          description: Updated calculation date settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculationDateSettings'
+        '400':
+          description: Invalid date format
+
+  # ── Notifications ──────────────────────────────────────────────────────────
+
+  /notifications/settings:
+    get:
+      tags: [Notifications]
+      summary: Get notification settings
+      operationId: getNotificationSettings
+      responses:
+        '200':
+          description: Current notification settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+    put:
+      tags: [Notifications]
+      summary: Update notification settings
+      operationId: updateNotificationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationSettings'
+      responses:
+        '200':
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+
+  /notifications/send-digest:
+    post:
+      tags: [Notifications]
+      summary: Manually trigger the expiry digest email
+      description: Sends the "items expiring soon" email immediately. Useful for testing.
+      operationId: sendDigest
+      responses:
+        '204':
+          description: Digest sent successfully
+        '424':
+          description: Email delivery failed
+
+  # ── Dashboard ──────────────────────────────────────────────────────────────
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Get full dashboard summary
+      description: |
+        Returns critical items (depleting very soon), upcoming purchases (within 30 days),
+        and current stock levels for all tracked items.
+      operationId: getDashboard
+      responses:
+        '200':
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+
+  /dashboard/stock-levels:
+    get:
+      tags: [Dashboard]
+      summary: Get current stock levels for all items
+      operationId: getStockLevels
+      responses:
+        '200':
+          description: Stock level forecast per item
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemForecast'
+
+  /dashboard/upcoming-purchases:
+    get:
+      tags: [Dashboard]
+      summary: Get items that will need to be purchased soon
+      operationId: getUpcomingPurchases
+      parameters:
+        - name: withinDays
+          in: query
+          schema:
+            type: integer
+            default: 30
+          description: Include items depleting within this many days
+      responses:
+        '200':
+          description: Items depleting within the specified window
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemForecast'
