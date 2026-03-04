@@ -171,6 +171,11 @@ components:
             Manual override for consumption rate (units per month).
             If null, the app infers it from purchase history.
           example: 8.0
+        lastBoughtDate:
+          type: string
+          format: date
+          description: Date when this item was last purchased. Used as the anchor for depletion forecasting.
+          example: "2026-03-04"
         createdAt:
           type: string
           format: date-time
@@ -204,6 +209,11 @@ components:
         monthlyConsumptionRate:
           type: number
           format: double
+        lastBoughtDate:
+          type: string
+          format: date
+          description: Date when this item was last purchased. Defaults to today if omitted.
+          example: "2026-03-04"
 
     UpdateItemRequest:
       allOf:

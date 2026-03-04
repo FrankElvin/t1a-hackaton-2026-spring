@@ -1,12 +1,13 @@
 import { type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Package, Plus, Settings, Bell, ShoppingBasket } from 'lucide-react'
+import { LayoutDashboard, Package, Plus, Settings, Bell, ShoppingBasket, Store } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/products', icon: Package, label: 'Products' },
+  { to: '/stores', icon: Store, label: 'Stores' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
@@ -14,6 +15,7 @@ const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/products': 'Products',
   '/add-product': 'Add Product',
+  '/stores': 'Stores',
   '/settings': 'Settings',
 }
 

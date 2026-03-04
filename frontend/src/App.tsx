@@ -6,6 +6,10 @@ import Layout from '@/components/Layout'
 import LoginPage from '@/pages/LoginPage'
 import OnboardingPage from '@/pages/OnboardingPage'
 import DashboardPage from '@/pages/DashboardPage'
+import AddProductPage from '@/pages/AddProductPage'
+import ProductsPage from '@/pages/ProductsPage'
+import StoresPage from '@/pages/StoresPage'
+import StoreDetailPage from '@/pages/StoreDetailPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,7 +47,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout>
-              <div className="text-center text-gray-400 py-20">Products — coming soon</div>
+              <ProductsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -53,7 +57,27 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout>
-              <div className="text-center text-gray-400 py-20">Add Product — coming soon</div>
+              <AddProductPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/stores"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <StoresPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/stores/:id"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <StoreDetailPage />
             </Layout>
           </ProtectedRoute>
         }

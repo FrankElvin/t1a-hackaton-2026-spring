@@ -45,6 +45,7 @@ export interface Item {
   price?: number
   consumerCategory?: ConsumerCategory
   monthlyConsumptionRate?: number
+  lastBoughtDate?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -58,6 +59,7 @@ export interface CreateItemRequest {
   price?: number
   consumerCategory?: ConsumerCategory
   monthlyConsumptionRate?: number
+  lastBoughtDate?: string
 }
 
 export interface ItemForecast {
@@ -95,6 +97,30 @@ export interface ShoppingList {
   nextVisitDate?: string
   entries: ShoppingListEntry[]
   totalEstimatedCost?: number
+}
+
+export interface ShoppingListsResponse {
+  calculationDate: string
+  lists: ShoppingList[]
+}
+
+export interface ForecastResponse {
+  calculationDate: string
+  items: ItemForecast[]
+}
+
+export interface ImportReceiptResponse {
+  importedItems: Item[]
+  unrecognizedLines: string[]
+}
+
+export interface MarkConsumedRequest {
+  quantityConsumed?: number
+  depletedAt?: string
+}
+
+export interface SetConsumptionRateRequest {
+  monthlyRate: number
 }
 
 export interface NotificationSettings {
