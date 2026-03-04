@@ -44,6 +44,8 @@ cd frontend && QA_BASE_URL=http://localhost:3000 npm run test:qa
 
 - [x] **[DASHBOARD]** Strict mode in Playwright: multiple elements match "Dashboard" — use `getByRole('heading', { level: 1, name: 'Dashboard' })`. Layout: single h1 instead of duplicate. **Fixed.**
 - [x] **[LAYOUT]** Consider adding `role="tab"` to Add Product method buttons for better accessibility. **Fixed:** Added role="tablist", role="tab", role="tabpanel" with proper ARIA.
+- [x] **[DASHBOARD/PRODUCTS]** Quantity/unit display — all items showed "1 pcs" regardless of actual quantity/unit (e.g. "Jajka 10szt", "Sok 2l"). **Fixed:** LLM prompts now extract `unit` (L, g, kg, szt, ml, pcs); ImportService uses parsed unit.
+- [x] **[ADD-PRODUCT/EMAIL]** Forward email shown in UI (`inbox@neverempty.app`) did not match backend `GMAIL_IMPERSONATE_EMAIL` (.env). **Fixed:** New API `GET /api/v1/settings/forward-email` returns backend email; frontend fetches it. `VITE_FORWARD_EMAIL` fallback for build; add `GMAIL_IMPERSONATE_EMAIL` to `.env` to match.
 
 ---
 
@@ -69,8 +71,8 @@ Full coverage of `/add-product` page with all 4 methods:
 | Test | Description |
 |------|-------------|
 | Manual entry | Form fields, unit presets, additional details, category/consumer dropdowns |
-| Receipt import | Upload file, scan, success screen, Scan Another, Done |
-| Email import | Forward address, copy button, paste & import, success screen |
+| Receipt import | Upload file, scan, success screen with quantity+unit (e.g. "2 L", "1 pcs"), Scan Another, Done |
+| Email import | Forward address (from API/.env), copy button, paste & import, success screen |
 | Barcode | Camera/manual entry, Open Food Facts lookup (mocked) |
 | Tab switching | All 4 tabs |
 | Done → /products | Navigation after import |
@@ -92,3 +94,4 @@ Uses mocked import APIs (receipt/email) and Open Food Facts to avoid external se
 
 1. **Run QA before merge:** `npm run test:qa` in frontend with MOCK_AUTH dev server.
 2. **Keycloak local dev:** Use `sslRequired: none` in realm and `KC_PROXY: edge` (already configured).
+3. **Email import:** Set `GMAIL_IMPERSONATE_EMAIL` in `.env` to the address users should forward emails to. Frontend displays this via `GET /settings/forward-email`. Docker build passes it as `VITE_FORWARD_EMAIL` fallback.

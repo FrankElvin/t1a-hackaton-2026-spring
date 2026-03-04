@@ -71,6 +71,15 @@ interface LogEntry {
   type: 'info' | 'success' | 'error'
 }
 
+interface BarcodeProductPreview {
+  name: string
+  brand: string
+  imageUrl: string | null
+  barcode: string
+  quantity: string
+  unit: string
+}
+
 function ProgressConsole({ log, isProcessing }: { log: LogEntry[]; isProcessing: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -193,6 +202,7 @@ export default function AddProductPage() {
   const [method, setMethod] = useState<Method>('manual')
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [prefillBanner, setPrefillBanner] = useState<string | null>(null)
+  const [barcodeProductPreview, setBarcodeProductPreview] = useState<BarcodeProductPreview | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showAdditional, setShowAdditional] = useState(false)
 
@@ -220,7 +230,16 @@ export default function AddProductPage() {
   const [emailLog, setEmailLog] = useState<LogEntry[]>([])
   const [emailError, setEmailError] = useState<string | null>(null)
   const [emailCopied, setEmailCopied] = useState(false)
-  const FORWARD_EMAIL = 'inbox@neverempty.app'
+
+  const { data: forwardEmailData } = useQuery<{ forwardEmail: string }>({
+    queryKey: ['settings', 'forward-email'],
+    queryFn: () => api.get<{ forwardEmail: string }>('/settings/forward-email').then((r) => r.data),
+    enabled: !MOCK_AUTH,
+  })
+  const FORWARD_EMAIL =
+    forwardEmailData?.forwardEmail ??
+    import.meta.env.VITE_FORWARD_EMAIL ??
+    'inbox@neverempty.app'
 
   // Barcode state
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -287,6 +306,7 @@ export default function AddProductPage() {
 
   async function lookupBarcode(barcode: string) {
     setLookingUp(true)
+    setBarcodeProductPreview(null)
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`)
       const data = await res.json()
@@ -295,13 +315,30 @@ export default function AddProductPage() {
         const name = p.product_name || p.product_name_en || barcode
         const rawQty: string = p.quantity || ''
         const qtyMatch = rawQty.match(/^([\d.]+)\s*(.*)$/)
+        const quantity = qtyMatch ? qtyMatch[1] : '1'
+        const unit = qtyMatch && qtyMatch[2] ? qtyMatch[2].trim() : 'pcs'
+        const imageUrl =
+          p.image_front_small_url ||
+          p.image_small_url ||
+          p.image_url ||
+          p.image_front_url ||
+          null
+        const brand = p.brands || ''
         setForm((prev) => ({
           ...prev,
           name,
-          currentQuantity: qtyMatch ? qtyMatch[1] : '1',
-          unit: qtyMatch && qtyMatch[2] ? qtyMatch[2].trim() : 'pcs',
+          currentQuantity: quantity,
+          unit,
         }))
         setPrefillBanner(`Found: ${name}`)
+        setBarcodeProductPreview({
+          name,
+          brand,
+          imageUrl,
+          barcode,
+          quantity,
+          unit,
+        })
       } else {
         setForm((prev) => ({ ...prev, name: `Product ${barcode}` }))
         setPrefillBanner(`Barcode ${barcode} not found in database — fill in details manually`)
@@ -475,7 +512,44 @@ export default function AddProductPage() {
       {method === 'manual' && (
         <div role="tabpanel" id="panel-manual" aria-labelledby="tab-manual">
         <form onSubmit={handleManualSubmit} className="space-y-4">
-          {prefillBanner && (
+          {barcodeProductPreview && (
+            <div className="relative bg-green-50 border border-green-200 rounded-xl p-4 overflow-hidden">
+              <div className="flex gap-4">
+                {barcodeProductPreview.imageUrl ? (
+                  <img
+                    src={barcodeProductPreview.imageUrl}
+                    alt={barcodeProductPreview.name}
+                    className="w-20 h-20 rounded-lg object-cover shrink-0 bg-white border border-green-200"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-lg bg-gray-200 flex items-center justify-center shrink-0 text-3xl">
+                    📦
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-green-900 truncate">{barcodeProductPreview.name}</p>
+                  {barcodeProductPreview.brand && (
+                    <p className="text-sm text-green-700 mt-0.5">{barcodeProductPreview.brand}</p>
+                  )}
+                  <p className="text-xs text-green-600 mt-1">
+                    {barcodeProductPreview.quantity} {barcodeProductPreview.unit} · {barcodeProductPreview.barcode}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPrefillBanner(null)
+                  setBarcodeProductPreview(null)
+                }}
+                className="absolute top-2 right-2 p-1 rounded text-green-600 hover:bg-green-100 transition-colors"
+                aria-label="Dismiss preview"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {prefillBanner && !barcodeProductPreview && (
             <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
               <span>✓</span>
               <span className="flex-1">{prefillBanner}</span>

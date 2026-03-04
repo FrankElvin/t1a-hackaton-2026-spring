@@ -114,6 +114,7 @@ services:
         VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-neverempty}
         VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-household-ui}
         VITE_MOCK_AUTH: ${VITE_MOCK_AUTH:-false}
+        VITE_FORWARD_EMAIL: ${GMAIL_IMPERSONATE_EMAIL:-inbox@neverempty.app}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:80"

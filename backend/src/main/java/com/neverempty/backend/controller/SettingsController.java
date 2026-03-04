@@ -1,5 +1,6 @@
 package com.neverempty.backend.controller;
 
+import com.neverempty.backend.config.AppProperties;
 import com.neverempty.backend.service.SettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,15 @@ import java.util.Map;
 public class SettingsController {
 
     private final SettingsService settingsService;
+    private final AppProperties appProperties;
+
+    @GetMapping("/settings/forward-email")
+    public ResponseEntity<Map<String, String>> getForwardEmail() {
+        var email = appProperties.google() != null && appProperties.google().gmailImpersonateEmail() != null
+                ? appProperties.google().gmailImpersonateEmail()
+                : "inbox@neverempty.app";
+        return ResponseEntity.ok(Map.of("forwardEmail", email));
+    }
 
     @GetMapping("/settings/calculation-date")
     public ResponseEntity<Map<String, LocalDate>> getCalculationDate(@AuthenticationPrincipal Jwt jwt) {

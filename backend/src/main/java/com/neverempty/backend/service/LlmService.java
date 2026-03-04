@@ -32,7 +32,8 @@ public class LlmService {
             Each element must have:
             - "name": the FULL, human-readable product name. If the name is abbreviated or truncated, \
             expand it into a proper, recognizable product name in the original language.
-            - "quantity": numeric quantity (default 1)
+            - "quantity": numeric quantity (e.g. 10 for "10szt", 2 for "2l", 500 for "500g", default 1)
+            - "unit": measurement unit - extract from product name: "szt"/"pcs" for pieces, "L"/"l"/"ml" for volume, "g"/"kg" for weight. Use "pcs" when no unit in name.
             - "priceAmount": unit price as a number (e.g. 12.99)
             - "priceCurrency": 3-letter currency code (e.g. "USD", "EUR")
             - "shop": store/merchant name if identifiable, else null
@@ -51,7 +52,8 @@ public class LlmService {
             "Mar Rana 550g" → "Margaryna Rama 550g", "Cuk dr Dianant 1kg" → "Cukier Diamant 1kg", \
             "Sok Pon Riviva 2l" → "Sok Pomarańczowy Riviva 2l"). \
             Always expand abbreviations into proper, recognizable product names in the original language.
-            - "quantity": numeric quantity (default 1)
+            - "quantity": numeric quantity (e.g. 10 for "10szt", 2 for "2l", 500 for "500g", default 1)
+            - "unit": measurement unit - extract from product name: "szt"/"pcs" for pieces, "L"/"l"/"ml" for volume, "g"/"kg" for weight. Use "pcs" when no unit in name.
             - "priceAmount": unit price as a number
             - "priceCurrency": 3-letter currency code (e.g. "USD")
             - "shop": store name if visible at the top/bottom of receipt, else null
@@ -137,10 +139,17 @@ public class LlmService {
 
     public record ParsedProduct(
             String name,
-            int quantity,
+            double quantity,
+            String unit,
             double priceAmount,
             String priceCurrency,
             String shop
+    ) {}
+
+    public record ClassifiedProduct(
+            String name,
+            String category,
+            int runoutDays
     ) {}
 
     public List<ParsedProduct> parseEmail(String emailBody) {
@@ -155,6 +164,23 @@ public class LlmService {
 
     public String classifyCategory(String productName) {
         return callLlm(CLASSIFY_CATEGORY_PROMPT, productName).toLowerCase().trim();
+    }
+
+    /**
+     * Classify all products in a single LLM call: category + runout days.
+     */
+    public List<ClassifiedProduct> classifyAll(List<ParsedProduct> products) {
+        var input = products.stream()
+                .map(p -> Map.of("name", p.name(), "quantity", p.quantity()))
+                .toList();
+        String userContent;
+        try {
+            userContent = objectMapper.writeValueAsString(input);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize products for batch classification", e);
+        }
+        var raw = callLlm(BATCH_CLASSIFY_PROMPT, userContent);
+        return parseJsonList(raw, new TypeReference<>() {});
     }
 
     public List<String> suggestConsumers(String productName, List<String> householdCategories) {

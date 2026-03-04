@@ -173,7 +173,9 @@ test.describe('Add Product Page', () => {
       ).toBeVisible({ timeout: 15000 })
 
       await expect(page.getByText('Milk 2%')).toBeVisible()
+      await expect(page.getByText('2 L')).toBeVisible()
       await expect(page.getByText('Whole Wheat Bread')).toBeVisible()
+      await expect(page.getByText('1 pcs')).toBeVisible()
       await expect(page.getByText('1 lines skipped')).toBeVisible()
 
       // Scan Another and Done buttons
@@ -199,7 +201,8 @@ test.describe('Add Product Page', () => {
     test('shows forward address and paste textarea', async ({ page }) => {
       await page.getByRole('tab', { name: /email/i }).click()
       await expect(page.getByText(/forward any store order/i)).toBeVisible()
-      await expect(page.getByText('inbox@neverempty.app')).toBeVisible()
+      // Forward email comes from API (GMAIL_IMPERSONATE_EMAIL) or fallback
+      await expect(page.locator('code').filter({ hasText: /@/ })).toBeVisible()
       await expect(page.getByPlaceholder(/paste the raw email/i)).toBeVisible()
       await expect(page.getByRole('button', { name: /parse & import/i })).toBeVisible()
     })
