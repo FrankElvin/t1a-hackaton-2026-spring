@@ -1,65 +1,62 @@
 # REQ-04: Add Product
 
 ## Overview
-Four methods to add products. All methods ultimately create product documents. LLM is used to auto-parse, auto-categorize, and auto-assign consumers.
+Four methods to add products. All methods ultimately create item documents via `POST /items`.
+LLM is used to auto-parse and auto-categorize items imported from receipts and emails.
 
 ## Input Methods
 
-### 1. Email Forward
-- User forwards an order confirmation email to a dedicated app email address (e.g. `inbox@neverempty.app`)
-- Backend receives the email, sends content to LLM for parsing
-- LLM extracts: product names, quantities, prices, store category
-- Parsed products appear in the app as a "pending import" list
-- User reviews, edits if needed, confirms to save
-- Store category is auto-assigned (grocery, household supplies, etc.)
+### 1. Manual Entry
+Form fields matching `CreateItemRequest`:
+- **Name** (required): text input
+- **Quantity** (required): numeric input, default 1
+- **Unit** (required): text input with quick-pick presets (pcs, kg, g, L, ml, pack, box, bottle, bag, roll)
+- **Category** (optional): dropdown — `ItemCategory` enum values: FOOD, BEVERAGES, CLEANING, PERSONAL_CARE, PET_FOOD, MEDICINE, OTHER
+- **Consumed by** (optional): dropdown — single `ConsumerCategory` value: ADULT, CHILD, CAT, DOG, PARROT, SMALL_ANIMAL
+- **Price** (optional): numeric input (currency is stored on the backend)
+- **Monthly usage rate** (optional): numeric input — units consumed per month. If left empty, the system calculates it automatically from purchase history.
+- "Save" button → `POST /items`
 
 ### 2. Photo Receipt (OCR)
-- User taps "Scan Receipt" and takes a photo or picks from gallery
-- Image sent to backend → LLM-based OCR extraction
-- Extracted data: product names, quantities, prices, store category
-- **Review screen**: list of extracted products, each editable
-- User confirms — products are saved
-- If OCR fails or is partial: user can manually edit/complete
+- User taps upload area or uses camera to take a photo of a store receipt
+- Image sent to backend: `POST /items/import/receipt` (multipart/form-data, field `image`)
+- **Review screen**: shows list of imported items (name, quantity, unit). Items are already saved.
+- Skipped lines (lines the backend could not parse) are shown separately
+- "Scan Another" or "Done" actions
 
-### 3. Barcode Scan
-- User taps "Scan Barcode" — opens camera with barcode scanner
-- Scanned barcode looked up in product database (e.g. Open Food Facts API)
-- If found: auto-fill name, category, default quantity = 1
-- If not found: fallback to manual entry with barcode stored
-- User reviews auto-filled data, confirms to save
+### 3. Email Forward
+- App displays the forwarding address: `inbox@neverempty.app` (with copy button)
+- User forwards any store order confirmation email to this address
+- Backend parses the email and adds products automatically
+- **Alternative**: user pastes raw email content directly into the app → `POST /items/import/email` with `{ rawEmail: string }`
+- Both paths return the same review screen as receipt import
 
-### 4. Manual Entry
-- Form fields:
-  - **Name** (required): text input
-  - **Quantity** (required): numeric input, default 1
-  - **Category** (required): dropdown — predefined + custom categories
-  - **Price** (optional): amount + currency selector
-  - **Consumers** (auto-assigned): multi-select chips from household categories
-    - LLM suggests which household members consume this product
-    - User can adjust before saving
-  - **Run-out date** (optional): date picker for manual override
-    - If not set: system will calculate based on consumption patterns
-- "Save" button
-
-## LLM Auto-Assignment
-For all input methods:
-- **Category**: LLM classifies product into store category (grocery, household, pharmacy, etc.)
-- **Consumers**: LLM determines which household members likely use this product based on product type and household composition
-- Both are shown to user for review/approval before final save
+### 4. Barcode Scan
+- Opens camera using the browser `BarcodeDetector` API (Chrome/Edge) for live scanning
+- When a barcode is detected, product is looked up in Open Food Facts (public API, no backend required)
+- If found: pre-fills the Manual Entry form (name, quantity, unit) for user review before saving
+- If not found: pre-fills name as `Product <barcode>` for manual completion
+- Manual barcode entry fallback: text field + "Look up" button for devices without camera support
 
 ## Data Created
-Each product saved to `product` collection:
+Each product is saved via `POST /items` (`CreateItemRequest`):
 ```json
 {
-  "owner": "<user_id>",
-  "name": "Milk 2%",
-  "quantity": 2,
-  "category": "grocery",
-  "last_bought": "2026-03-04",
-  "price": { "currency": "USD", "amount": 3.99 },
-  "consumers": ["adult", "child"],
-  "run_out_at": { "deadline": null, "type": "calculated" },
-  "notification": { "run_out_soon": false, "ran_out": false }
+  "name": "Oat Milk",
+  "currentQuantity": 2,
+  "unit": "L",
+  "category": "BEVERAGES",
+  "consumerCategory": "ADULT",
+  "price": 89.99,
+  "monthlyConsumptionRate": 8.0
 }
 ```
-Note: `run_out_at.deadline` is null until calculated by the batch process or set manually.
+Fields `category`, `consumerCategory`, `price`, `monthlyConsumptionRate` are optional.
+
+## Changes from original spec
+- **Unit field added** (required by API, was missing from original requirement)
+- **Consumers** changed from multi-select to single `ConsumerCategory` value (matches API)
+- **"Run-out date"** removed — replaced by `monthlyConsumptionRate` (system calculates depletion dates)
+- **Currency selector** removed — price is a plain number; currency is a backend concern
+- **Custom categories** removed — `ItemCategory` enum is fixed; no free-form category input
+- **Barcode** uses Open Food Facts (public) instead of a dedicated backend endpoint

@@ -45,6 +45,7 @@ export interface Item {
   price?: number
   consumerCategory?: ConsumerCategory
   monthlyConsumptionRate?: number
+  lastBoughtDate?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -58,6 +59,7 @@ export interface CreateItemRequest {
   price?: number
   consumerCategory?: ConsumerCategory
   monthlyConsumptionRate?: number
+  lastBoughtDate?: string
 }
 
 export interface ItemForecast {

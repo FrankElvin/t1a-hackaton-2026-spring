@@ -6,6 +6,7 @@ import Layout from '@/components/Layout'
 import LoginPage from '@/pages/LoginPage'
 import OnboardingPage from '@/pages/OnboardingPage'
 import DashboardPage from '@/pages/DashboardPage'
+import AddProductPage from '@/pages/AddProductPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,7 +54,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout>
-              <div className="text-center text-gray-400 py-20">Add Product — coming soon</div>
+              <AddProductPage />
             </Layout>
           </ProtectedRoute>
         }
