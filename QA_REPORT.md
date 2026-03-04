@@ -62,6 +62,32 @@ cd frontend && QA_BASE_URL=http://localhost:3000 npm run test:qa
 
 ---
 
+## Add Product E2E Tests (`add-product.e2e.spec.ts`)
+
+Full coverage of `/add-product` page with all 4 methods:
+
+| Test | Description |
+|------|-------------|
+| Manual entry | Form fields, unit presets, additional details, category/consumer dropdowns |
+| Receipt import | Upload file, scan, success screen, Scan Another, Done |
+| Email import | Forward address, copy button, paste & import, success screen |
+| Barcode | Camera/manual entry, Open Food Facts lookup (mocked) |
+| Tab switching | All 4 tabs |
+| Done → /products | Navigation after import |
+
+**Run:**
+```bash
+# Terminal 1
+cd frontend && VITE_MOCK_AUTH=true npm run dev
+
+# Terminal 2
+cd frontend && npm run test:add-product
+```
+
+Uses mocked import APIs (receipt/email) and Open Food Facts to avoid external services. For real DB write verification, run with `docker-compose up -d` and `QA_BASE_URL=http://localhost:3000`.
+
+---
+
 ## Recommendations
 
 1. **Run QA before merge:** `npm run test:qa` in frontend with MOCK_AUTH dev server.
