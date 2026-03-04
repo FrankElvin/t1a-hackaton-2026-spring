@@ -447,10 +447,14 @@ export default function AddProductPage() {
   return (
     <div className="max-w-lg mx-auto pb-8">
       {/* Method selector */}
-      <div className="grid grid-cols-4 gap-2 mb-6">
+      <div className="grid grid-cols-4 gap-2 mb-6" role="tablist" aria-label="Add product method">
         {methods.map((m) => (
           <button
             key={m.id}
+            role="tab"
+            aria-selected={method === m.id}
+            aria-controls={`panel-${m.id}`}
+            id={`tab-${m.id}`}
             onClick={() => {
               setMethod(m.id)
               stopScanning()
@@ -469,6 +473,7 @@ export default function AddProductPage() {
 
       {/* ── Manual Entry ── */}
       {method === 'manual' && (
+        <div role="tabpanel" id="panel-manual" aria-labelledby="tab-manual">
         <form onSubmit={handleManualSubmit} className="space-y-4">
           {prefillBanner && (
             <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
@@ -684,11 +689,12 @@ export default function AddProductPage() {
             {saveMutation.isPending ? 'Saving…' : 'Save Product'}
           </Button>
         </form>
+        </div>
       )}
 
       {/* ── Receipt Photo ── */}
       {method === 'receipt' && (
-        <div className="space-y-4">
+        <div role="tabpanel" id="panel-receipt" aria-labelledby="tab-receipt" className="space-y-4">
           {!importedItems ? (
             <>
               <div
@@ -818,7 +824,7 @@ export default function AddProductPage() {
 
       {/* ── Email Forward ── */}
       {method === 'email' && (
-        <div className="space-y-6">
+        <div role="tabpanel" id="panel-email" aria-labelledby="tab-email" className="space-y-6">
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 text-center">
             <div className="text-4xl mb-3">📧</div>
             <p className="text-sm text-gray-600 mb-3">
@@ -941,7 +947,7 @@ export default function AddProductPage() {
 
       {/* ── Barcode Scan ── */}
       {method === 'barcode' && (
-        <div className="space-y-4">
+        <div role="tabpanel" id="panel-barcode" aria-labelledby="tab-barcode" className="space-y-4">
           {barcodeSupported === false && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
               <p className="text-sm text-yellow-800 font-medium">

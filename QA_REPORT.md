@@ -24,7 +24,7 @@ cd frontend && QA_BASE_URL=http://localhost:5173 npm run test:qa
 # Start full stack
 docker-compose up -d
 
-# Run QA (will fail at registration due to Keycloak HTTPS issue)
+# Run QA
 cd frontend && QA_BASE_URL=http://localhost:3000 npm run test:qa
 ```
 
@@ -38,12 +38,12 @@ cd frontend && QA_BASE_URL=http://localhost:3000 npm run test:qa
 
 ### 🟡 Major (degrades UX, not blocking)
 
-- [ ] **[ADD-PRODUCT]** Vite proxy target was localhost:8080 but Docker backend runs on 8081 — fixed in vite.config.ts for dev server. **Verify** other envs use correct port.
+- [x] **[ADD-PRODUCT]** Vite proxy target was localhost:8080 but Docker backend runs on 8081 — fixed in vite.config.ts. Added `VITE_PROXY_API_TARGET` env var (default 8081). Updated openapi.yaml servers. **Fixed.**
 
 ### 🟢 Minor (cosmetic, improvements)
 
-- [ ] **[DASHBOARD]** Strict mode in Playwright: multiple elements match "Dashboard" — use specific locators (getByRole heading) in tests.
-- [ ] **[LAYOUT]** Consider adding `role="tab"` to Add Product method buttons for better accessibility.
+- [x] **[DASHBOARD]** Strict mode in Playwright: multiple elements match "Dashboard" — use `getByRole('heading', { level: 1, name: 'Dashboard' })`. Layout: single h1 instead of duplicate. **Fixed.**
+- [x] **[LAYOUT]** Consider adding `role="tab"` to Add Product method buttons for better accessibility. **Fixed:** Added role="tablist", role="tab", role="tabpanel" with proper ARIA.
 
 ---
 
@@ -52,7 +52,7 @@ cd frontend && QA_BASE_URL=http://localhost:3000 npm run test:qa
 | Area | Status (MOCK_AUTH) | Status (Keycloak) |
 |------|--------------------|-------------------|
 | 1. Login page | ✅ Pass | ✅ Pass |
-| 2-3. Registration → Onboarding | ✅ Pass | ❌ Keycloak HTTPS |
+| 2-3. Registration → Onboarding | ✅ Pass | ✅ Pass (sslRequired: none) |
 | 4-5. Onboarding → Dashboard | ✅ Pass | — |
 | 6. Dashboard | ✅ Pass | — |
 | 7. Products | ✅ Pass | — |
@@ -64,6 +64,5 @@ cd frontend && QA_BASE_URL=http://localhost:3000 npm run test:qa
 
 ## Recommendations
 
-1. **Keycloak HTTPS:** Configure KC_HOSTNAME_STRICT or disable HTTPS requirement for local development (see Keycloak docs).
-2. **Run QA before merge:** `npm run test:qa` in frontend with MOCK_AUTH dev server.
-3. **Pass this TODO list to Claude Code** for fixing the critical Keycloak issue.
+1. **Run QA before merge:** `npm run test:qa` in frontend with MOCK_AUTH dev server.
+2. **Keycloak local dev:** Use `sslRequired: none` in realm and `KC_PROXY: edge` (already configured).
