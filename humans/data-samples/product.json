@@ -13,8 +13,12 @@
         "adult", 
         "child"
     ],
-    "runout_at": {
-        "calculated": "date calculated by automatic process",
-        "manual": "date calclulated by "
+    "run_out_at": {
+        "deadline": "date",
+        "type": "calculated | manual"
+    },
+    "notification": {
+        "run_out_soon": true,
+        "ran_out": false
     }
 }
