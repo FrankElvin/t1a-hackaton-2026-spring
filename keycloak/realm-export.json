@@ -1,6 +1,7 @@
 {
   "realm": "neverempty",
   "enabled": true,
+  "sslRequired": "none",
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,

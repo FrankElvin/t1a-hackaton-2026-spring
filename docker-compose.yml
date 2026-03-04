@@ -50,6 +50,7 @@ services:
       KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-9090}
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
+      KC_PROXY: edge
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     ports:
