@@ -1,12 +1,10 @@
 {
     "user_id": "str",
-    "inhabitants": [
-      {
+    "inhabitants": {
           "adult": 2,
           "child": 2,
           "manual input, e.g. 'Bob the doggy'": 1
-      }
-    ],
+    },
     "active": true,
     "lock": {
         "locked": false,

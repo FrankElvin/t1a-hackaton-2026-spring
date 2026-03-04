@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "household.schema.json",
+  "title": "Household",
+  "type": "object",
+  "required": ["user_id", "inhabitants", "active", "lock"],
+  "additionalProperties": false,
+  "properties": {
+    "_id": {
+      "type": "string",
+      "description": "MongoDB document ID"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "inhabitants": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "description": "Map of inhabitant category name to count (e.g. {\"adult\": 2, \"child\": 1})"
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "lock": {
+      "type": "object",
+      "required": ["locked", "by", "until"],
+      "additionalProperties": false,
+      "properties": {
+        "locked": {
+          "type": "boolean"
+        },
+        "by": {
+          "type": ["string", "null"],
+          "description": "Identifier of the executor that holds the lock"
+        },
+        "until": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Lock expiry timestamp (ISO 8601 date-time)"
+        }
+      }
+    }
+  }
+}

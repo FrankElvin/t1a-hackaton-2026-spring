@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "product.schema.json",
+  "title": "Product",
+  "type": "object",
+  "required": ["owner", "name", "quantity", "last_bought", "price", "consumers", "notification"],
+  "additionalProperties": false,
+  "properties": {
+    "_id": {
+      "type": "string",
+      "description": "MongoDB document ID"
+    },
+    "owner": {
+      "type": "string",
+      "description": "User ID of the household owner"
+    },
+    "name": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number",
+      "minimum": 0
+    },
+    "shop": {
+      "type": ["string", "null"]
+    },
+    "last_bought": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of last purchase (ISO 8601 date, YYYY-MM-DD)"
+    },
+    "price": {
+      "type": "object",
+      "required": ["currency", "amount"],
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "description": "ISO 4217 3-letter currency code"
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "consumers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "Inhabitant categories that consume this product (default: [\"adult\"])"
+    },
+    "run_out_at": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["deadline", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "deadline": {
+              "type": "string",
+              "format": "date",
+              "description": "Estimated run-out date (ISO 8601 date, YYYY-MM-DD)"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["calculated", "manual"]
+            }
+          }
+        }
+      ]
+    },
+    "notification": {
+      "type": "object",
+      "required": ["run_out_soon", "ran_out"],
+      "additionalProperties": false,
+      "properties": {
+        "run_out_soon": {
+          "type": "boolean"
+        },
+        "ran_out": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
