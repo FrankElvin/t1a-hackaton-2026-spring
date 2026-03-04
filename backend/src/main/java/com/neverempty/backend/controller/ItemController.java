@@ -1,0 +1,96 @@
+package com.neverempty.backend.controller;
+
+import com.neverempty.backend.dto.CreateItemRequest;
+import com.neverempty.backend.dto.MarkConsumedRequest;
+import com.neverempty.backend.dto.SetConsumptionRateRequest;
+import com.neverempty.backend.model.Item;
+import com.neverempty.backend.model.enums.ItemCategory;
+import com.neverempty.backend.service.ItemService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/v1")
+@RequiredArgsConstructor
+public class ItemController {
+
+    private final ItemService itemService;
+
+    @GetMapping("/items")
+    public ResponseEntity<List<Item>> listItems(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) ItemCategory category,
+            @RequestParam(required = false) String storeId) {
+        var userId = jwt.getSubject();
+        return ResponseEntity.ok(itemService.listItems(userId, category, storeId));
+    }
+
+    @PostMapping("/items")
+    public ResponseEntity<Item> createItem(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody CreateItemRequest request) {
+        var userId = jwt.getSubject();
+        var created = itemService.createItem(userId, request);
+        return ResponseEntity.status(201).body(created);
+    }
+
+    @GetMapping("/items/{itemId}")
+    public ResponseEntity<Item> getItem(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId) {
+        var userId = jwt.getSubject();
+        return itemService.getItem(userId, itemId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/items/{itemId}")
+    public ResponseEntity<Item> updateItem(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId,
+            @Valid @RequestBody CreateItemRequest request) {
+        var userId = jwt.getSubject();
+        return itemService.updateItem(userId, itemId, request)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/items/{itemId}")
+    public ResponseEntity<Void> deleteItem(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId) {
+        var userId = jwt.getSubject();
+        if (itemService.deleteItem(userId, itemId)) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/items/{itemId}/consumed")
+    public ResponseEntity<Item> markConsumed(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId,
+            @Valid @RequestBody MarkConsumedRequest request) {
+        var userId = jwt.getSubject();
+        return itemService.markConsumed(userId, itemId, request)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/items/{itemId}/consumption-rate")
+    public ResponseEntity<Item> setConsumptionRate(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId,
+            @Valid @RequestBody SetConsumptionRateRequest request) {
+        var userId = jwt.getSubject();
+        return itemService.setConsumptionRate(userId, itemId, request.monthlyRate())
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+}

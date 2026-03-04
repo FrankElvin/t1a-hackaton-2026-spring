@@ -1,0 +1,32 @@
+spring:
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27017}
+      database: ${MONGO_DB_NAME:never_empty}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/neverempty}
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+server:
+  port: ${BACKEND_PORT:8080}
+
+app:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${OPENAI_BASE_URL:https://litellm.secondstack.t1a.io/v1}
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+  google:
+    credentials-path: ${CREDENTIALS_PATH:}
+    gmail-impersonate-email: ${GMAIL_IMPERSONATE_EMAIL:inbox@t1aclmllmagents.click}
+  barcode:
+    lookup-key: ${BARCODE_LOOKUP_KEY:}
+  notification:
+    soon-days: ${NOTIFICATION_SOON_DAYS:3}
