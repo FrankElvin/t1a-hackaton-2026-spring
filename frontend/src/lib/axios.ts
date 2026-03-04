@@ -5,13 +5,21 @@ const api = axios.create({
   baseURL: '/api/v1',
 })
 
+let isRedirecting = false
+
 api.interceptors.request.use(async (config) => {
+  if (isRedirecting) {
+    return Promise.reject(new axios.Cancel('Redirecting to login'))
+  }
   if (keycloak.token) {
-    // Refresh if token expires in less than 30 seconds
     try {
       await keycloak.updateToken(30)
     } catch {
-      keycloak.login()
+      if (!isRedirecting) {
+        isRedirecting = true
+        keycloak.login()
+      }
+      return Promise.reject(new axios.Cancel('Token expired'))
     }
     config.headers.Authorization = `Bearer ${keycloak.token}`
   }
@@ -21,7 +29,8 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (res) => res,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isRedirecting) {
+      isRedirecting = true
       keycloak.login()
     }
     return Promise.reject(error)
