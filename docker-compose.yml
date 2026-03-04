@@ -71,14 +71,14 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
-    # Allows 'localhost' inside the container to resolve to the Docker host,
-    # so the backend can reach Keycloak via the same public URL the browser uses.
-    extra_hosts:
-      - "localhost:host-gateway"
     environment:
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB_NAME: ${MONGO_DB_NAME:-never_empty}
+      # Must match the 'iss' claim in tokens (i.e. KC_HOSTNAME — the public URL)
       KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-9090}/realms/${KEYCLOAK_REALM:-neverempty}
+      # Fetch signing keys via internal Docker DNS — bypasses the discovery endpoint,
+      # which would return public localhost URLs unreachable from inside the container
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-neverempty}/protocol/openid-connect/certs
       BACKEND_PORT: 8080
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://litellm.secondstack.t1a.io/v1}
