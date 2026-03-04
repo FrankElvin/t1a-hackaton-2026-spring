@@ -24,6 +24,12 @@ interface PetEntry {
   category: PetCategory
 }
 
+interface StoreEntry {
+  uid: string
+  name: string
+  visitIntervalDays: number
+}
+
 function Stepper({
   label,
   count,
@@ -66,14 +72,29 @@ export default function OnboardingPage() {
   const [addingPet, setAddingPet] = useState(false)
   const [newPetName, setNewPetName] = useState('')
   const [newPetCategory, setNewPetCategory] = useState<PetCategory>('CAT')
+  const [stores, setStores] = useState<StoreEntry[]>([])
+  const [addingStore, setAddingStore] = useState(false)
+  const [newStoreName, setNewStoreName] = useState('')
+  const [newStoreVisitDays, setNewStoreVisitDays] = useState('7')
 
   const totalPeople = adults + children
 
   const mutation = useMutation({
-    mutationFn: (household: Household) =>
-      MOCK_AUTH
-        ? Promise.resolve(household)
-        : api.put('/household', household).then((r) => r.data),
+    mutationFn: async ({
+      household,
+      storesToCreate,
+    }: {
+      household: Household
+      storesToCreate: StoreEntry[]
+    }) => {
+      if (MOCK_AUTH) return
+      await api.put('/household', household)
+      await Promise.all(
+        storesToCreate.map((s) =>
+          api.post('/stores', { name: s.name, visitIntervalDays: s.visitIntervalDays })
+        )
+      )
+    },
     onSuccess: () => navigate('/dashboard', { replace: true }),
   })
 
@@ -84,11 +105,23 @@ export default function OnboardingPage() {
     ])
     setNewPetName('')
     setNewPetCategory('CAT')
-    // keep form open so user can add another pet immediately
   }
 
   function removePet(uid: string) {
     setPets((prev) => prev.filter((p) => p.uid !== uid))
+  }
+
+  function addStore() {
+    const name = newStoreName.trim()
+    if (!name) return
+    const visitIntervalDays = Math.max(1, parseInt(newStoreVisitDays, 10) || 7)
+    setStores((prev) => [...prev, { uid: crypto.randomUUID(), name, visitIntervalDays }])
+    setNewStoreName('')
+    setNewStoreVisitDays('7')
+  }
+
+  function removeStore(uid: string) {
+    setStores((prev) => prev.filter((s) => s.uid !== uid))
   }
 
   function handleSubmit() {
@@ -97,7 +130,7 @@ export default function OnboardingPage() {
       ...Array.from({ length: children }, () => ({ category: 'CHILD' as const })),
     ]
     const petPayload: Pet[] = pets.map(({ name, category }) => ({ name, category }))
-    mutation.mutate({ members, pets: petPayload })
+    mutation.mutate({ household: { members, pets: petPayload }, storesToCreate: stores })
   }
 
   return (
@@ -211,6 +244,80 @@ export default function OnboardingPage() {
                   className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                 >
                   + Add a pet
+                </button>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-gray-100" />
+
+            {/* Stores */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                Stores
+              </p>
+
+              {stores.length > 0 && (
+                <ul className="space-y-2 mb-3">
+                  {stores.map((store) => (
+                    <li
+                      key={store.uid}
+                      className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2"
+                    >
+                      <span className="text-sm text-gray-800">
+                        {store.name}
+                        <span className="text-gray-400 text-xs ml-2">
+                          every {store.visitIntervalDays}d
+                        </span>
+                      </span>
+                      <button
+                        onClick={() => removeStore(store.uid)}
+                        className="text-gray-400 hover:text-red-500 transition-colors ml-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {addingStore ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Store name"
+                      value={newStoreName}
+                      onChange={(e) => setNewStoreName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addStore()}
+                      autoFocus
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="Days"
+                      value={newStoreVisitDays}
+                      onChange={(e) => setNewStoreVisitDays(e.target.value)}
+                      className="w-20"
+                      title="Visit every N days"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400">Visit frequency in days (e.g. 7 = weekly)</p>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={addStore} disabled={!newStoreName.trim()}>
+                      Add
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setAddingStore(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingStore(true)}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  + Add a store
                 </button>
               )}
             </div>

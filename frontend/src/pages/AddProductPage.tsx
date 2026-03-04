@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import api from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { ItemCategory, ConsumerCategory, Item, CreateItemRequest } from '@/types/api'
+import { mockStores } from '@/lib/mockData'
+import type { ItemCategory, ConsumerCategory, Item, CreateItemRequest, ImportReceiptResponse, Store } from '@/types/api'
 
 const MOCK_AUTH = import.meta.env.VITE_MOCK_AUTH === 'true'
 
@@ -16,6 +17,7 @@ interface FormState {
   currentQuantity: string
   unit: string
   lastBoughtDate: string
+  storeId: string
   category: ItemCategory | ''
   consumerCategory: ConsumerCategory | ''
   price: string
@@ -27,6 +29,7 @@ const EMPTY_FORM: FormState = {
   currentQuantity: '1',
   unit: 'pcs',
   lastBoughtDate: new Date().toISOString().split('T')[0],
+  storeId: '',
   category: '',
   consumerCategory: '',
   price: '',
@@ -68,6 +71,13 @@ export default function AddProductPage() {
   const [prefillBanner, setPrefillBanner] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showAdditional, setShowAdditional] = useState(false)
+
+  const { data: stores = [] } = useQuery<Store[]>({
+    queryKey: ['stores'],
+    queryFn: MOCK_AUTH
+      ? () => Promise.resolve(mockStores)
+      : () => api.get<Store[]>('/stores').then((r) => r.data),
+  })
 
   // Receipt state
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
@@ -192,6 +202,7 @@ export default function AddProductPage() {
       currentQuantity: parseFloat(form.currentQuantity) || 0,
       unit: form.unit.trim(),
       ...(form.lastBoughtDate ? { lastBoughtDate: form.lastBoughtDate } : {}),
+      ...(form.storeId ? { storeId: form.storeId } : {}),
       ...(form.category ? { category: form.category as ItemCategory } : {}),
       ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
       ...(form.price ? { price: parseFloat(form.price) } : {}),
@@ -218,7 +229,7 @@ export default function AddProductPage() {
       const formData = new FormData()
       formData.append('image', file)
       return api
-        .post<{ importedItems: Item[]; unrecognizedLines: string[] }>('/items/import/receipt', formData)
+        .post<ImportReceiptResponse>('/items/import/receipt', formData)
         .then((r) => r.data)
     },
     onSuccess: (data) => {
@@ -253,9 +264,7 @@ export default function AddProductPage() {
         })
       }
       return api
-        .post<{ importedItems: Item[]; unrecognizedLines: string[] }>('/items/import/email', {
-          rawEmail,
-        })
+        .post<ImportReceiptResponse>('/items/import/email', { rawEmail })
         .then((r) => r.data)
     },
     onSuccess: (data) => setEmailImported(data.importedItems),
@@ -393,6 +402,7 @@ export default function AddProductPage() {
                 {!showAdditional && (
                   <span className="text-xs text-gray-400 font-normal">
                     {[
+                      form.storeId ? stores.find((s) => s.id === form.storeId)?.name : null,
                       form.category ? ITEM_CATEGORY_LABELS[form.category as ItemCategory] : null,
                       form.consumerCategory
                         ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
@@ -410,6 +420,23 @@ export default function AddProductPage() {
 
             {showAdditional && (
               <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="store">Store</Label>
+                  <select
+                    id="store"
+                    value={form.storeId}
+                    onChange={(e) => setForm((p) => ({ ...p, storeId: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Not specified —</option>
+                    {stores.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="space-y-1.5">
                   <Label htmlFor="category">Category</Label>
                   <select
