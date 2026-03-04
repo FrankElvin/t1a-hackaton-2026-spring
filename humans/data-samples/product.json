@@ -1,8 +1,7 @@
 {
     "owner": "str, user_id",
     "name": "str",
-    "category": "product category, optional",
-    "quantity": 1,
+    "quantity": 1.5,
     "shop": "shop name",
     "last_bought": "<date>",
     "price": {
@@ -10,7 +9,7 @@
         "amount": 2
     },
     "consumers": [
-        "inhab categories; default - adult (one item)",
+        "inhabitant categories; default - adult (one item)",
         "adult", 
         "child"
     ],

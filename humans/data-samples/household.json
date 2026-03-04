@@ -1,6 +1,6 @@
 {
     "user_id": "str",
-    "inhabs": [
+    "inhabitants": [
       {
           "adult": 2,
           "child": 2,
@@ -12,10 +12,5 @@
         "locked": false,
         "by": "executor-name",
         "until": "date"
-    },
-    "available_prod_categories": [
-        "manual input",
-        "data",
-        "from web form"
-    ]
+    }
 }
