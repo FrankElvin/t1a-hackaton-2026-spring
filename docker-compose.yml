@@ -37,7 +37,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.2
     # start-dev is suitable for demo; for production replace with: start --optimized
-    command: start-dev
+    command: start-dev --import-realm
     restart: unless-stopped
     environment:
       KC_DB: postgres
@@ -50,6 +50,8 @@ services:
       KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-9090}
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     ports:
       - "${KEYCLOAK_PORT:-9090}:8080"
     depends_on:
@@ -79,6 +81,7 @@ services:
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB_NAME: ${MONGO_DB_NAME:-never_empty}
       KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-9090}/realms/${KEYCLOAK_REALM:-neverempty}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-neverempty}/protocol/openid-connect/certs
       BACKEND_PORT: 8080
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://litellm.secondstack.t1a.io/v1}

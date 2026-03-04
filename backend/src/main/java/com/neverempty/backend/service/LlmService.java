@@ -30,7 +30,8 @@ public class LlmService {
             The user will provide the raw text or HTML of an order confirmation or receipt email.
             Extract every purchased item and return a JSON array.
             Each element must have:
-            - "name": product name
+            - "name": the FULL, human-readable product name. If the name is abbreviated or truncated, \
+            expand it into a proper, recognizable product name in the original language.
             - "quantity": numeric quantity (default 1)
             - "priceAmount": unit price as a number (e.g. 12.99)
             - "priceCurrency": 3-letter currency code (e.g. "USD", "EUR")
@@ -45,7 +46,11 @@ public class LlmService {
             The user will provide raw OCR text extracted from a receipt photo.
             Extract every purchased item and return a JSON array.
             Each element must have:
-            - "name": product name as it appears on the receipt
+            - "name": the FULL, human-readable product name. Receipt text is often abbreviated \
+            (e.g. "Mleko sw 2%" → "Mleko świeże 2%", "Jaj Niespodz 20g" → "Jajko Niespodzianka 20g", \
+            "Mar Rana 550g" → "Margaryna Rama 550g", "Cuk dr Dianant 1kg" → "Cukier Diamant 1kg", \
+            "Sok Pon Riviva 2l" → "Sok Pomarańczowy Riviva 2l"). \
+            Always expand abbreviations into proper, recognizable product names in the original language.
             - "quantity": numeric quantity (default 1)
             - "priceAmount": unit price as a number
             - "priceCurrency": 3-letter currency code (e.g. "USD")
@@ -74,9 +79,20 @@ public class LlmService {
 
     private static final String ESTIMATE_RUNOUT_PROMPT = """
             You are a household consumption estimator.
-            Given a product with its name, quantity, category, consumers, and last_bought date,
-            estimate the number of days until this product runs out.
-            Consider product type and typical consumption rates, and the number of consumers.
+            Given a product with its name, quantity, category, and consumers,
+            estimate the number of days until this product runs out for a typical household.
+            Consider realistic consumption patterns:
+            - Milk (1L): ~3-5 days
+            - Bread (500g): ~3-4 days
+            - Eggs (10 pcs): ~7-10 days
+            - Butter/Margarine (200-500g): ~14-21 days
+            - Sugar (1kg): ~30-60 days
+            - Oil (1L): ~30-45 days
+            - Juice (1-2L): ~3-7 days
+            - Cheese (200-400g): ~7-14 days
+            - Cleaning products: ~30-90 days
+            - Personal care: ~30-60 days
+            Scale estimates based on actual quantity and number of consumers.
             Return ONLY an integer (number of days). Nothing else.
             """;
 

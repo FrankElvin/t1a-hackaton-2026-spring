@@ -8,6 +8,7 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/neverempty}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8080/realms/neverempty/protocol/openid-connect/certs}
   mail:
     host: smtp.gmail.com
     port: 587
