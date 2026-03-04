@@ -67,6 +67,31 @@ public class LlmService {
             Return ONLY the category string, nothing else.
             """;
 
+    private static final String BATCH_CLASSIFY_PROMPT = """
+            You are a household product classifier and consumption estimator.
+            Given a JSON array of products, classify each one and estimate how many days \
+            until a typical household runs out of it.
+
+            Valid categories: grocery, household, pharmacy, pet, baby, electronics, clothing, other.
+
+            Realistic consumption guidelines:
+            - Milk (1L): ~3-5 days
+            - Bread (500g): ~3-4 days
+            - Eggs (10 pcs): ~7-10 days
+            - Butter/Margarine (200-500g): ~14-21 days
+            - Sugar (1kg): ~30-60 days
+            - Oil (1L): ~30-45 days
+            - Juice (1-2L): ~3-7 days
+            - Cheese (200-400g): ~7-14 days
+            - Cleaning products: ~30-90 days
+            - Personal care: ~30-60 days
+            Scale estimates based on actual quantity and number of consumers.
+
+            Return ONLY a JSON array (no markdown fences) with one object per product:
+            [{"name":"...","category":"...","runoutDays":...}, ...]
+            The "name" must match the input exactly. "runoutDays" must be a positive integer.
+            """;
+
     private static final String SUGGEST_CONSUMERS_PROMPT = """
             You are a household consumption advisor.
             Given a product name and a list of household member categories,
