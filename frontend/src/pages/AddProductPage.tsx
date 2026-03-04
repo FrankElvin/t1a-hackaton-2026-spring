@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import api from '@/lib/axios'
+import keycloak from '@/lib/keycloak'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -64,6 +65,129 @@ declare class BarcodeDetector {
   static getSupportedFormats(): Promise<string[]>
 }
 
+interface LogEntry {
+  time: string
+  text: string
+  type: 'info' | 'success' | 'error'
+}
+
+function ProgressConsole({ log, isProcessing }: { log: LogEntry[]; isProcessing: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight
+    }
+  }, [log])
+
+  if (log.length === 0) return null
+
+  return (
+    <div
+      ref={containerRef}
+      className="bg-gray-900 rounded-xl p-4 font-mono text-xs max-h-56 overflow-y-auto space-y-1 border border-gray-700"
+    >
+      {log.map((entry, i) => (
+        <div key={i} className="flex gap-2">
+          <span className="text-gray-500 shrink-0">{entry.time}</span>
+          <span
+            className={
+              entry.type === 'success'
+                ? 'text-green-400'
+                : entry.type === 'error'
+                  ? 'text-red-400'
+                  : 'text-gray-300'
+            }
+          >
+            {entry.text}
+          </span>
+        </div>
+      ))}
+      {isProcessing && (
+        <div className="flex gap-2">
+          <span className="text-gray-500 shrink-0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+          <span className="text-blue-400 animate-pulse">Processing...</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function timeStamp(): string {
+  return new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (MOCK_AUTH) return {}
+  try {
+    await keycloak.updateToken(30)
+  } catch {
+    keycloak.login()
+    throw new Error('Token expired')
+  }
+  return { Authorization: `Bearer ${keycloak.token}` }
+}
+
+/**
+ * Stream SSE events from an import endpoint.
+ * Calls onProgress for each progress event, returns the final result.
+ */
+async function streamImport(
+  url: string,
+  body: FormData | string,
+  contentType: 'multipart' | 'json',
+  onProgress: (msg: string) => void
+): Promise<ImportReceiptResponse> {
+  const headers = await getAuthHeaders()
+  if (contentType === 'json') {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: contentType === 'json' ? body : (body as FormData),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Import failed: ${response.status}`)
+  }
+
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: ImportReceiptResponse | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    let eventName = ''
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        const data = line.slice(5)
+        if (eventName === 'progress') {
+          onProgress(data)
+        } else if (eventName === 'result') {
+          result = JSON.parse(data)
+        } else if (eventName === 'error') {
+          throw new Error(data)
+        }
+        eventName = ''
+      }
+    }
+  }
+
+  if (!result) throw new Error('No result received from server')
+  return result
+}
+
 export default function AddProductPage() {
   const navigate = useNavigate()
   const [method, setMethod] = useState<Method>('manual')
@@ -84,11 +208,17 @@ export default function AddProductPage() {
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
   const [importedItems, setImportedItems] = useState<Item[] | null>(null)
   const [unrecognizedLines, setUnrecognizedLines] = useState<string[]>([])
+  const [receiptProcessing, setReceiptProcessing] = useState(false)
+  const [receiptLog, setReceiptLog] = useState<LogEntry[]>([])
+  const [receiptError, setReceiptError] = useState<string | null>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
 
   // Email state
   const [emailContent, setEmailContent] = useState('')
   const [emailImported, setEmailImported] = useState<Item[] | null>(null)
+  const [emailProcessing, setEmailProcessing] = useState(false)
+  const [emailLog, setEmailLog] = useState<LogEntry[]>([])
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [emailCopied, setEmailCopied] = useState(false)
   const FORWARD_EMAIL = 'inbox@neverempty.app'
 
@@ -213,62 +343,93 @@ export default function AddProductPage() {
     saveMutation.mutate(req)
   }
 
-  // Receipt import
-  const receiptMutation = useMutation({
-    mutationFn: (file: File) => {
-      if (MOCK_AUTH) {
-        return Promise.resolve({
-          importedItems: [
-            { id: crypto.randomUUID(), name: 'Oat Milk', currentQuantity: 2, unit: 'L' },
-            { id: crypto.randomUUID(), name: 'Whole Grain Bread', currentQuantity: 1, unit: 'pcs' },
-            { id: crypto.randomUUID(), name: 'Greek Yogurt', currentQuantity: 4, unit: 'pcs' },
-          ] as Item[],
-          unrecognizedLines: ['LOYALTY POINTS: 125', 'CASHBACK: $0.50'],
-        })
-      }
+  // Receipt import with streaming
+  async function handleReceiptImport() {
+    if (!receiptFile) return
+    setReceiptProcessing(true)
+    setReceiptError(null)
+    setReceiptLog([{ time: timeStamp(), text: 'Starting receipt import...', type: 'info' }])
+    setImportedItems(null)
+    setUnrecognizedLines([])
+
+    try {
       const formData = new FormData()
-      formData.append('image', file)
-      return api
-        .post<ImportReceiptResponse>('/items/import/receipt', formData)
-        .then((r) => r.data)
-    },
-    onSuccess: (data) => {
-      setImportedItems(data.importedItems)
-      setUnrecognizedLines(data.unrecognizedLines)
-    },
-  })
+      formData.append('image', receiptFile)
+
+      const result = await streamImport(
+        '/api/v1/items/import/receipt/stream',
+        formData,
+        'multipart',
+        (msg) => {
+          const type: LogEntry['type'] = msg.includes('Saved:') || msg.includes('complete')
+            ? 'success'
+            : msg.includes('Failed:')
+              ? 'error'
+              : 'info'
+          setReceiptLog((prev) => [...prev, { time: timeStamp(), text: msg, type }])
+        }
+      )
+
+      setImportedItems(result.importedItems)
+      setUnrecognizedLines(result.unrecognizedLines)
+      setReceiptLog((prev) => [
+        ...prev,
+        { time: timeStamp(), text: `Done! ${result.importedItems.length} products imported.`, type: 'success' },
+      ])
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error'
+      setReceiptError(msg)
+      setReceiptLog((prev) => [...prev, { time: timeStamp(), text: `Error: ${msg}`, type: 'error' }])
+    } finally {
+      setReceiptProcessing(false)
+    }
+  }
 
   function handleReceiptFile(file: File) {
     setReceiptFile(file)
     setImportedItems(null)
     setUnrecognizedLines([])
+    setReceiptLog([])
+    setReceiptError(null)
     setReceiptPreview(URL.createObjectURL(file))
   }
 
-  // Email import
-  const emailMutation = useMutation({
-    mutationFn: (rawEmail: string) => {
-      if (MOCK_AUTH) {
-        return Promise.resolve({
-          importedItems: [
-            {
-              id: crypto.randomUUID(),
-              name: 'Dishwasher Tablets 40-pack',
-              currentQuantity: 40,
-              unit: 'pcs',
-            },
-            { id: crypto.randomUUID(), name: 'Laundry Detergent', currentQuantity: 2, unit: 'kg' },
-            { id: crypto.randomUUID(), name: 'Toilet Paper 12-roll', currentQuantity: 12, unit: 'roll' },
-          ] as Item[],
-          unrecognizedLines: [],
-        })
-      }
-      return api
-        .post<ImportReceiptResponse>('/items/import/email', { rawEmail })
-        .then((r) => r.data)
-    },
-    onSuccess: (data) => setEmailImported(data.importedItems),
-  })
+  // Email import with streaming
+  async function handleEmailImport() {
+    if (!emailContent.trim()) return
+    setEmailProcessing(true)
+    setEmailError(null)
+    setEmailLog([{ time: timeStamp(), text: 'Starting email import...', type: 'info' }])
+    setEmailImported(null)
+
+    try {
+      const result = await streamImport(
+        '/api/v1/items/import/email/stream',
+        JSON.stringify({ rawEmail: emailContent }),
+        'json',
+        (msg) => {
+          const type: LogEntry['type'] = msg.includes('Saved:') || msg.includes('complete')
+            ? 'success'
+            : msg.includes('Failed:')
+              ? 'error'
+              : 'info'
+          setEmailLog((prev) => [...prev, { time: timeStamp(), text: msg, type }])
+        }
+      )
+
+      setEmailImported(result.importedItems)
+      setEmailLog((prev) => [
+        ...prev,
+        { time: timeStamp(), text: `Done! ${result.importedItems.length} products imported.`, type: 'success' },
+      ])
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error'
+      setEmailError(msg)
+      setEmailLog((prev) => [...prev, { time: timeStamp(), text: `Error: ${msg}`, type: 'error' }])
+    } finally {
+      setEmailProcessing(false)
+    }
+  }
 
   async function copyEmail() {
     await navigator.clipboard.writeText(FORWARD_EMAIL)
@@ -531,8 +692,12 @@ export default function AddProductPage() {
           {!importedItems ? (
             <>
               <div
-                onClick={() => receiptInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 transition-colors"
+                onClick={() => !receiptProcessing && receiptInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                  receiptProcessing
+                    ? 'border-gray-200 cursor-default'
+                    : 'border-gray-300 cursor-pointer hover:border-blue-400'
+                }`}
               >
                 {receiptPreview ? (
                   <img
@@ -558,16 +723,15 @@ export default function AddProductPage() {
                   if (e.target.files?.[0]) handleReceiptFile(e.target.files[0])
                 }}
               />
-              {receiptFile && (
-                <Button
-                  className="w-full"
-                  onClick={() => receiptMutation.mutate(receiptFile)}
-                  disabled={receiptMutation.isPending}
-                >
-                  {receiptMutation.isPending ? 'Scanning…' : 'Scan Receipt'}
+
+              <ProgressConsole log={receiptLog} isProcessing={receiptProcessing} />
+
+              {receiptFile && !receiptProcessing && (
+                <Button className="w-full" onClick={handleReceiptImport}>
+                  Scan Receipt
                 </Button>
               )}
-              {receiptMutation.isError && (
+              {receiptError && !receiptProcessing && (
                 <p className="text-sm text-red-500 text-center">
                   Could not parse receipt. Try a clearer photo.
                 </p>
@@ -575,19 +739,43 @@ export default function AddProductPage() {
             </>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-800">Imported Items</h3>
-                <span className="text-sm text-green-600 font-medium">
-                  {importedItems.length} saved
-                </span>
+              {/* Success confirmation banner */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                <div className="text-3xl mb-2">✅</div>
+                <p className="font-semibold text-green-800">
+                  {importedItems.length} products imported successfully
+                </p>
+                {unrecognizedLines.length > 0 && (
+                  <p className="text-sm text-orange-600 mt-1">
+                    {unrecognizedLines.length} lines skipped
+                  </p>
+                )}
               </div>
+
+              <details className="group">
+                <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+                  Show processing log ({receiptLog.length} events)
+                </summary>
+                <div className="mt-2">
+                  <ProgressConsole log={receiptLog} isProcessing={false} />
+                </div>
+              </details>
+
               <div className="space-y-2">
+                <h3 className="font-semibold text-gray-800">Imported Items</h3>
                 {importedItems.map((item) => (
                   <div
                     key={item.id}
                     className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
                   >
-                    <span className="font-medium text-gray-800">{item.name}</span>
+                    <div>
+                      <span className="font-medium text-gray-800">{item.name}</span>
+                      {item.category && (
+                        <span className="ml-2 text-xs text-gray-400">
+                          {ITEM_CATEGORY_LABELS[item.category] ?? item.category}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-sm text-gray-500">
                       {item.currentQuantity} {item.unit}
                     </span>
@@ -614,6 +802,7 @@ export default function AddProductPage() {
                     setImportedItems(null)
                     setReceiptFile(null)
                     setReceiptPreview(null)
+                    setReceiptLog([])
                   }}
                 >
                   Scan Another
@@ -648,7 +837,9 @@ export default function AddProductPage() {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-3">
-              Products will be automatically parsed and added to your list
+              Products will be automatically parsed and added to your list.
+              <br />
+              Make sure your forwarding email matches the one in your notification settings.
             </p>
           </div>
 
@@ -668,34 +859,59 @@ export default function AddProductPage() {
                 onChange={(e) => setEmailContent(e.target.value)}
                 placeholder="Paste the raw email content here…"
                 rows={6}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                disabled={emailProcessing}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
               />
-              <Button
-                className="w-full"
-                onClick={() => emailMutation.mutate(emailContent)}
-                disabled={!emailContent.trim() || emailMutation.isPending}
-              >
-                {emailMutation.isPending ? 'Parsing…' : 'Parse & Import'}
-              </Button>
-              {emailMutation.isError && (
+
+              <ProgressConsole log={emailLog} isProcessing={emailProcessing} />
+
+              {!emailProcessing && (
+                <Button
+                  className="w-full"
+                  onClick={handleEmailImport}
+                  disabled={!emailContent.trim()}
+                >
+                  Parse & Import
+                </Button>
+              )}
+              {emailError && !emailProcessing && (
                 <p className="text-sm text-red-500 text-center">Could not parse email content.</p>
               )}
             </div>
           ) : (
             <>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800">Imported Items</h3>
-                  <span className="text-sm text-green-600 font-medium">
-                    {emailImported.length} saved
-                  </span>
+              {/* Success confirmation */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                <div className="text-3xl mb-2">✅</div>
+                <p className="font-semibold text-green-800">
+                  {emailImported.length} products imported successfully
+                </p>
+              </div>
+
+              <details className="group">
+                <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+                  Show processing log ({emailLog.length} events)
+                </summary>
+                <div className="mt-2">
+                  <ProgressConsole log={emailLog} isProcessing={false} />
                 </div>
+              </details>
+
+              <div className="space-y-2">
+                <h3 className="font-semibold text-gray-800">Imported Items</h3>
                 {emailImported.map((item) => (
                   <div
                     key={item.id}
                     className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
                   >
-                    <span className="font-medium text-gray-800">{item.name}</span>
+                    <div>
+                      <span className="font-medium text-gray-800">{item.name}</span>
+                      {item.category && (
+                        <span className="ml-2 text-xs text-gray-400">
+                          {ITEM_CATEGORY_LABELS[item.category] ?? item.category}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-sm text-gray-500">
                       {item.currentQuantity} {item.unit}
                     </span>
@@ -709,6 +925,7 @@ export default function AddProductPage() {
                   onClick={() => {
                     setEmailImported(null)
                     setEmailContent('')
+                    setEmailLog([])
                   }}
                 >
                   Import Another
