@@ -5,7 +5,7 @@
 | Auth | Keycloak (OIDC/JWT) |
 | Keycloak storage | Postgres (or H2 for ephemeral demo) |
 | Observability | OpenTelemetry SDK → OTLP → Honeycomb |
-| Email transport | MailHog / Mailpit (demo) |
+| Email transport | Google Service Account
 | Batch scheduling | 2 dedicated containers, each with internal scheduler; distributed locking via `findOneAndUpdate` on `household` |
 | Deployment | Docker Compose |
 
