@@ -1,12 +1,23 @@
 services:
 
+  # -- manual
+  caddy:
+    image: caddy:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+
   # ── Data stores ──────────────────────────────────────────────────────────────
 
   mongodb:
     image: mongo:7
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -49,11 +60,11 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       # Public URL that browsers and backend both use (see networking note in .env)
-      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-9090}
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
-    ports:
-      - "${KEYCLOAK_PORT:-9090}:8080"
+        #ports:
+        #  - "${KEYCLOAK_PORT:-9090}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,7 +88,7 @@ services:
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB_NAME: ${MONGO_DB_NAME:-never_empty}
       # Must match the 'iss' claim in tokens (i.e. KC_HOSTNAME — the public URL)
-      KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-9090}/realms/${KEYCLOAK_REALM:-neverempty}
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL}/realms/${KEYCLOAK_REALM:-neverempty}
       # Fetch signing keys via internal Docker DNS — bypasses the discovery endpoint,
       # which would return public localhost URLs unreachable from inside the container
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-neverempty}/protocol/openid-connect/certs
@@ -108,13 +119,13 @@ services:
       context: ./frontend
       # Vite embeds these at build time — changing them requires a rebuild
       args:
-        VITE_KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-9090}
+        VITE_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL}
         VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-neverempty}
         VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-household-ui}
         VITE_MOCK_AUTH: ${VITE_MOCK_AUTH:-false}
     restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
+    #ports:
+    #  - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
     networks:
@@ -123,6 +134,8 @@ services:
 volumes:
   mongodb_data:
   postgres_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   internal:
