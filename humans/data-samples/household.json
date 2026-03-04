@@ -1,0 +1,19 @@
+{
+    "userId": "str",
+    "inhabs": [
+      {
+          "adult": 2,
+          "child": 2,
+          "manual input, e.g. 'Bob the doggy'": 1
+      }
+    ],
+    "active": true,
+    "lock": {
+        "locked": false,
+        "by": "executor-name",
+        "until": "date"
+    },
+    "prod_categories": [
+        "manual input", "data", "from web form"
+    ]
+}

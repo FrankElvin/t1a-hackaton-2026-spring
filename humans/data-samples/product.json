@@ -1,0 +1,21 @@
+{
+    "owner": "str, userId",
+    "name": "str",
+    "category": "product category, optional",
+    "quantity": 1,
+    "shop": "shop name",
+    "last_bought": "<date>",
+    "price": {
+        "currency": "str, 3-letter currency code",
+        "amount": 2
+    },
+    "assinged_inhabs": [
+        "inhab categories; default - adult (one item)",
+        "adult", 
+        "child"
+    ],
+    "runout_at": {
+        "calculated": "date calculated by automatic process",
+        "manual": "date calclulated by "
+    }
+}
