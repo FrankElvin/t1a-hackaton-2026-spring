@@ -6,29 +6,35 @@ After registration, the user completes a questionnaire about household compositi
 ## Questionnaire Flow
 
 ### Single Screen: Family Composition
-- Default categories shown: "Adults", "Children"
-- Each category has a numeric stepper (+ / −), minimum 0
-- "Add custom category" button at the bottom
-  - User types a name (e.g. "Bob the dog", "Grandma")
-  - Gets its own stepper, default count = 1
-- User can remove custom categories (trash icon)
-- At least 1 member total required to proceed
+
+#### People (PersonCategory: ADULT | CHILD)
+- **Adults** — numeric stepper (+ / −), minimum 0, default 1
+- **Children** — numeric stepper (+ / −), minimum 0, default 0
+- At least 1 person total required to proceed
+
+#### Pets (PetCategory: CAT | DOG | PARROT | SMALL_ANIMAL | OTHER)
+- List of added pets, each showing: emoji + name + type label + trash icon to remove
+- "Add a pet" button opens an inline form:
+  - Type dropdown: Cat 🐱 / Dog 🐶 / Parrot 🦜 / Small Animal 🐭 / Other 🐾
+  - Name input (optional)
+  - "Add" button to confirm, "Cancel" to dismiss
 
 ### Actions
 - "Continue" button — saves household, redirects to Dashboard (empty state)
 - No "Skip" — household composition is required
 
 ## Data Saved
-Writes to `household` collection:
+Calls `PUT /household` with:
 ```json
 {
-  "user_id": "<from JWT>",
-  "inhabitants": [
-    { "adult": 2 },
-    { "child": 1 },
-    { "Bob the dog": 1 }
+  "members": [
+    { "category": "ADULT" },
+    { "category": "ADULT" },
+    { "category": "CHILD" }
   ],
-  "active": true,
-  "lock": { "locked": false }
+  "pets": [
+    { "name": "Whiskers", "category": "CAT" },
+    { "name": "Rex", "category": "DOG" }
+  ]
 }
 ```
