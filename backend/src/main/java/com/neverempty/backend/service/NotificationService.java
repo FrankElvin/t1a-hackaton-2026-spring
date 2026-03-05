@@ -193,15 +193,17 @@ public class NotificationService {
         }
 
         var checkLocalDate = checkDate.atZone(ZoneOffset.UTC).toLocalDate();
+        var today = LocalDate.now();
 
         var allItems = itemRepository.findByUserId(userId);
 
         var itemsWithForecast = allItems.stream()
                 .filter(item -> ignorePrevNotification || !item.isNotifiedRunOut())
-                .map(item -> new AbstractMap.SimpleEntry<>(item, forecastService.buildForecast(item, checkLocalDate)))
+                .map(item -> new AbstractMap.SimpleEntry<>(item, forecastService.buildForecast(item, today)))
                 .filter(entry -> {
-                    int days = entry.getValue().daysUntilDepletion();
-                    return days >= 0 && days <= ITEM_LOOK_AHEAD_DAYS;
+                    LocalDate depletionDate = entry.getValue().estimatedDepletionDate();
+                    long daysFromCheck = ChronoUnit.DAYS.between(checkLocalDate, depletionDate);
+                    return daysFromCheck >= 0 && daysFromCheck <= ITEM_LOOK_AHEAD_DAYS;
                 })
                 .toList();
 
