@@ -942,6 +942,17 @@ export default function AddProductPage() {
   async function startScanning() {
     setBarcodeError(null)
     if (html5QrCodeRef.current) return
+    setScanning(true)
+    // Wait for DOM + layout — html5-qrcode uses parentElement.clientWidth for video; if 0, video shows black
+    await new Promise((r) => setTimeout(r, 150))
+    const el = document.getElementById('barcode-reader')
+    if (!el) return
+    const waitForSize = (): Promise<void> =>
+      el.clientWidth > 0
+        ? Promise.resolve()
+        : new Promise((r) => requestAnimationFrame(() => waitForSize().then(r)))
+    await waitForSize()
+    await new Promise((r) => setTimeout(r, 50))
     try {
       const qrCode = new Html5Qrcode('barcode-reader')
       html5QrCodeRef.current = qrCode
@@ -952,12 +963,26 @@ export default function AddProductPage() {
           stopScanning()
           lookupBarcode(decodedText)
         },
-        () => {} // per-frame errors — ignore
+        () => {}
       )
-      setScanning(true)
-    } catch {
+      // iOS: patch video for playsinline (library sets property, but older Safari needs attribute)
+      const video = el.querySelector('video')
+      if (video) {
+        video.setAttribute('playsinline', '')
+        video.setAttribute('webkit-playsinline', '')
+        video.muted = true
+        video.play().catch(() => {})
+      }
+    } catch (err) {
       html5QrCodeRef.current = null
-      setBarcodeError('Camera access denied or unavailable. Try typing the barcode below.')
+      setScanning(false)
+      const msg = err instanceof Error ? err.message : String(err)
+      const isInsecure = window.isSecureContext === false
+      setBarcodeError(
+        isInsecure
+          ? 'Camera requires HTTPS. Open this page via https:// or localhost.'
+          : `Camera error: ${msg}`
+      )
     }
   }
 
@@ -1821,10 +1846,13 @@ export default function AddProductPage() {
       {/* ── Barcode Scan ── */}
       {method === 'barcode' && !reviewBatch && (
         <div role="tabpanel" id="panel-barcode" aria-labelledby="tab-barcode" className="space-y-4">
-          <div className="relative bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '4/3' }}>
+          <div
+            className="relative rounded-xl overflow-hidden bg-black"
+            style={{ minHeight: 240 }}
+          >
             <div id="barcode-reader" className={scanning ? '' : 'hidden'} />
             {!scanning && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
+              <div className="flex flex-col items-center justify-center text-white gap-2" style={{ aspectRatio: '4/3' }}>
                 <div className="text-5xl">🔳</div>
                 <p className="text-sm text-white/70">Camera off</p>
               </div>
