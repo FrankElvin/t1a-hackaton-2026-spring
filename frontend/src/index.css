@@ -54,14 +54,12 @@
 /* html5-qrcode overrides */
 #barcode-reader {
   border: none !important;
+  position: relative;
 }
 #barcode-reader video {
-  border-radius: 0.75rem;
+  width: 100% !important;
+  display: block !important;
 }
 #barcode-reader img[alt="Info icon"] {
-  display: none !important;
-}
-/* Hide the built-in file scan / permission UI */
-#barcode-reader > div:last-child {
   display: none !important;
 }
