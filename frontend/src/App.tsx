@@ -10,6 +10,8 @@ import AddProductPage from '@/pages/AddProductPage'
 import ProductsPage from '@/pages/ProductsPage'
 import StoresPage from '@/pages/StoresPage'
 import StoreDetailPage from '@/pages/StoreDetailPage'
+import ProductDetailPage from '@/pages/ProductDetailPage'
+import SettingsPage from '@/pages/SettingsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +65,16 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/products/:id"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ProductDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/stores"
         element={
           <ProtectedRoute>
@@ -87,7 +99,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout>
-              <div className="text-center text-gray-400 py-20">Settings — coming soon</div>
+              <SettingsPage />
             </Layout>
           </ProtectedRoute>
         }

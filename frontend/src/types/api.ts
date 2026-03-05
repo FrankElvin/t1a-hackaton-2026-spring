@@ -45,6 +45,7 @@ export interface Item {
   price?: number
   consumerCategory?: ConsumerCategory
   monthlyConsumptionRate?: number
+  autoCalc?: boolean
   lastBoughtDate?: string
   createdAt?: string
   updatedAt?: string
@@ -59,8 +60,11 @@ export interface CreateItemRequest {
   price?: number
   consumerCategory?: ConsumerCategory
   monthlyConsumptionRate?: number
+  autoCalc?: boolean
   lastBoughtDate?: string
 }
+
+export type UpdateItemRequest = CreateItemRequest
 
 export interface ItemForecast {
   itemId: string
