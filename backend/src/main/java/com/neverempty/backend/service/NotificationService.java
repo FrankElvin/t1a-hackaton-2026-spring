@@ -254,6 +254,7 @@ public class NotificationService {
     private String buildNotificationHtml(
             List<AbstractMap.SimpleEntry<Item, ItemForecast>> itemsWithForecast,
             LocalDate checkDate) {
+        var appUrl = properties.baseUrl() != null ? properties.baseUrl() : "http://localhost:3000";
 
         var rows = new StringBuilder();
         for (var entry : itemsWithForecast) {
@@ -335,9 +336,9 @@ public class NotificationService {
                         <!-- CTA -->
                         <tr>
                           <td style="padding:0 32px 32px;">
-                            <p style="margin:0 0 16px;font-size:14px;color:#64748b;">
-                              Open NeverEmpty to view your shopping list and update quantities.
-                            </p>
+                            <a href="%s" style="display:inline-block;padding:12px 24px;background:#3b82f6;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;">
+                              Open NeverEmpty →
+                            </a>
                           </td>
                         </tr>
 
@@ -356,7 +357,7 @@ public class NotificationService {
                   </table>
                 </body>
                 </html>
-                """.formatted(checkDate, ITEM_LOOK_AHEAD_DAYS, rows, checkDate);
+                """.formatted(checkDate, ITEM_LOOK_AHEAD_DAYS, rows, appUrl, checkDate);
     }
 
     private static String escapeHtml(String s) {

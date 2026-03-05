@@ -89,6 +89,7 @@ services:
       GMAIL_IMPERSONATE_EMAIL: ${GMAIL_IMPERSONATE_EMAIL:-}
       BARCODE_LOOKUP_KEY: ${BARCODE_LOOKUP_KEY:-}
       NOTIFICATION_SOON_DAYS: ${NOTIFICATION_SOON_DAYS:-3}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       LOGGING_LEVEL_COM_NEVEREMPTY_BACKEND: DEBUG
     volumes:
       - ${GOOGLE_CREDENTIALS_FILE:-./google-credentials.json}:/app/credentials/google-credentials.json:ro
