@@ -118,6 +118,39 @@ export interface ImportReceiptResponse {
   unrecognizedLines: string[]
 }
 
+export type ImportBatchSource = 'RECEIPT' | 'EMAIL'
+
+export interface ParsedProductDto {
+  index: number
+  name: string
+  quantity: number
+  unit: string
+  priceAmount?: number
+  priceCurrency?: string
+  category?: ItemCategory
+  monthlyConsumptionRate?: number
+}
+
+export interface ImportBatchResponse {
+  id: string
+  source: ImportBatchSource
+  sourceMetadata?: string
+  storeId?: string
+  parsedProducts: ParsedProductDto[]
+  unrecognizedLines: string[]
+  createdAt?: string
+}
+
+export interface MatchSuggestion {
+  itemId: string
+  name: string
+  score: number
+}
+
+export interface AddQuantityRequest {
+  quantity: number
+}
+
 export interface MarkConsumedRequest {
   quantityConsumed?: number
   depletedAt?: string

@@ -72,25 +72,25 @@ public class EmailPollingScheduler {
             return;
         }
 
-        var result = importService.importFromEmail(userId, content);
+        var batch = importService.parseOnlyFromEmail(userId, content, msg -> {});
 
-        // Send confirmation
-        var itemNames = result.importedItems().stream()
-                .map(item -> "  - " + item.getName() + " (" + item.getCurrentQuantity() + " " + item.getUnit() + ")")
+        // Send confirmation - products are pending review in the app
+        var productLines = batch.getParsedProducts().stream()
+                .map(p -> "  - " + p.name() + " (" + p.quantity() + " " + p.unit() + ")")
                 .toList();
 
         var body = new StringBuilder();
-        body.append("We've processed your forwarded email and imported ")
-                .append(result.importedItems().size())
-                .append(" products:\n\n");
-        itemNames.forEach(name -> body.append(name).append("\n"));
+        body.append("We've parsed your forwarded email and identified ")
+                .append(batch.getParsedProducts().size())
+                .append(" products for review:\n\n");
+        productLines.forEach(line -> body.append(line).append("\n"));
 
-        if (!result.unrecognizedLines().isEmpty()) {
+        if (batch.getUnrecognizedLines() != null && !batch.getUnrecognizedLines().isEmpty()) {
             body.append("\nSkipped lines:\n");
-            result.unrecognizedLines().forEach(line -> body.append("  - ").append(line).append("\n"));
+            batch.getUnrecognizedLines().forEach(line -> body.append("  - ").append(line).append("\n"));
         }
 
-        body.append("\nView your inventory at https://neverempty.app/products");
+        body.append("\nOpen the app and go to Add Product → Email to review and save each product to your inventory.");
 
         var replySubject = email.subject() != null && !email.subject().isBlank()
                 ? (email.subject().trim().toLowerCase().startsWith("re:") ? "" : "Re: ") + email.subject().trim()
@@ -105,7 +105,7 @@ public class EmailPollingScheduler {
         );
         emailParserService.markAsRead(email.id());
 
-        log.info("Imported {} items for user {} from email", result.importedItems().size(), userId);
+        log.info("Parsed {} products for user {} from email (pending review)", batch.getParsedProducts().size(), userId);
     }
 
     /**

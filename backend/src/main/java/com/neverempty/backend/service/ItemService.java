@@ -1,5 +1,6 @@
 package com.neverempty.backend.service;
 
+import com.neverempty.backend.dto.AddQuantityRequest;
 import com.neverempty.backend.dto.CreateItemRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
 import com.neverempty.backend.model.Item;
@@ -84,6 +85,15 @@ public class ItemService {
         return repository.findByIdAndUserId(itemId, userId)
                 .map(item -> {
                     item.setMonthlyConsumptionRate(monthlyRate);
+                    return repository.save(item);
+                });
+    }
+
+    public Optional<Item> addQuantity(String userId, String itemId, AddQuantityRequest request) {
+        return repository.findByIdAndUserId(itemId, userId)
+                .map(item -> {
+                    double added = request.quantity() != null ? request.quantity() : 0.0;
+                    item.setCurrentQuantity(item.getCurrentQuantity() + added);
                     return repository.save(item);
                 });
     }

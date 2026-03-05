@@ -1,10 +1,14 @@
 package com.neverempty.backend.controller;
 
+import com.neverempty.backend.dto.AddQuantityRequest;
 import com.neverempty.backend.dto.CreateItemRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
+import com.neverempty.backend.dto.SuggestMatchesRequest;
 import com.neverempty.backend.dto.SetConsumptionRateRequest;
+import com.neverempty.backend.dto.MatchSuggestion;
 import com.neverempty.backend.model.Item;
 import com.neverempty.backend.model.enums.ItemCategory;
+import com.neverempty.backend.service.ItemMatchService;
 import com.neverempty.backend.service.ItemService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +25,7 @@ import java.util.List;
 public class ItemController {
 
     private final ItemService itemService;
+    private final ItemMatchService itemMatchService;
 
     @GetMapping("/items")
     public ResponseEntity<List<Item>> listItems(
@@ -81,6 +86,26 @@ public class ItemController {
         return itemService.markConsumed(userId, itemId, request)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/items/{itemId}/add-quantity")
+    public ResponseEntity<Item> addQuantity(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId,
+            @Valid @RequestBody AddQuantityRequest request) {
+        var userId = jwt.getSubject();
+        return itemService.addQuantity(userId, itemId, request)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/items/suggest-matches")
+    public ResponseEntity<List<MatchSuggestion>> suggestMatches(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody SuggestMatchesRequest request) {
+        var userId = jwt.getSubject();
+        var suggestions = itemMatchService.suggestMatches(userId, request.productName());
+        return ResponseEntity.ok(suggestions);
     }
 
     @PutMapping("/items/{itemId}/consumption-rate")

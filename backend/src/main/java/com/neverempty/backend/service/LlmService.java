@@ -94,6 +94,19 @@ public class LlmService {
             The "name" must match the input exactly. "runoutDays" must be a positive integer.
             """;
 
+    private static final String SUGGEST_MATCHES_PROMPT = """
+            You are a product matching assistant.
+            Given a product name (from a receipt or email) and a list of existing inventory item names,
+            return which existing items likely match. Consider:
+            - Same product in different languages (e.g. "Mleko" vs "Milk")
+            - Abbreviations vs full names
+            - Brand variations
+            Return ONLY a JSON array of objects: [{"name":"<exact existing item name>","score":0.0-1.0}, ...]
+            Order by score descending (best match first). Include only items with score >= 0.3.
+            Use "name" exactly as it appears in the existing list. "score" is confidence 0-1.
+            If no good matches, return [].
+            """;
+
     private static final String SUGGEST_CONSUMERS_PROMPT = """
             You are a household consumption advisor.
             Given a product name and a list of household member categories,
@@ -187,6 +200,31 @@ public class LlmService {
         var content = "Product: %s\nHousehold members: %s".formatted(productName, householdCategories);
         var raw = callLlm(SUGGEST_CONSUMERS_PROMPT, content);
         return parseJsonList(raw, new TypeReference<>() {});
+    }
+
+    public record MatchCandidate(String name, double score) {}
+
+    public List<MatchCandidate> suggestMatches(String parsedProductName, List<String> existingItemNames) {
+        if (existingItemNames == null || existingItemNames.isEmpty()) {
+            return List.of();
+        }
+        String userContent = "Parsed product: %s\nExisting items: %s"
+                .formatted(parsedProductName, String.join(", ", existingItemNames));
+        try {
+            var raw = callLlm(SUGGEST_MATCHES_PROMPT, userContent);
+            var list = parseJsonList(raw, new TypeReference<List<Map<String, Object>>>() {});
+            return list.stream()
+                    .map(m -> new MatchCandidate(
+                            (String) m.get("name"),
+                            ((Number) m.getOrDefault("score", 0.5)).doubleValue()
+                    ))
+                    .filter(c -> c.name() != null && !c.name().isBlank())
+                    .limit(10)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("LLM suggest matches failed for '{}': {}", parsedProductName, e.getMessage());
+            return List.of();
+        }
     }
 
     public int estimateRunoutDays(String name, double quantity, String category,

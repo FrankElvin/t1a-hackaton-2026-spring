@@ -232,6 +232,36 @@ components:
       allOf:
         - $ref: '#/components/schemas/CreateItemRequest'
 
+    AddQuantityRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity:
+          type: number
+          format: double
+          description: Quantity to add to existing item
+
+    SuggestMatchesRequest:
+      type: object
+      required: [productName]
+      properties:
+        productName:
+          type: string
+          description: Parsed product name from receipt/email
+
+    MatchSuggestion:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        score:
+          type: number
+          format: double
+          description: Confidence 0-1
+
     MarkConsumedRequest:
       type: object
       description: Report that an item has been partially or fully used
@@ -278,6 +308,62 @@ components:
         rawEmail:
           type: string
           description: Full raw email content (EML format or plain text body) from a store
+
+    ImportBatchSource:
+      type: string
+      enum: [RECEIPT, EMAIL]
+      description: Source of the import batch
+
+    ParsedProductDto:
+      type: object
+      description: Parsed product from receipt/email — not yet saved as Item. Used for user review flow.
+      properties:
+        index:
+          type: integer
+          description: Order index within the batch
+        name:
+          type: string
+        quantity:
+          type: number
+          format: double
+        unit:
+          type: string
+        priceAmount:
+          type: number
+          format: double
+        priceCurrency:
+          type: string
+        category:
+          $ref: '#/components/schemas/ItemCategory'
+        monthlyConsumptionRate:
+          type: number
+          format: double
+
+    ImportBatchResponse:
+      type: object
+      description: Pending import batch — products to be reviewed and saved one-by-one via manual form
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          $ref: '#/components/schemas/ImportBatchSource'
+        sourceMetadata:
+          type: string
+        storeId:
+          type: string
+          format: uuid
+        parsedProducts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParsedProductDto'
+        unrecognizedLines:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
 
     # ─── Forecast ────────────────────────────────────────────────────────────
 
@@ -712,6 +798,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/Item'
 
+  /items/suggest-matches:
+    post:
+      tags: [Items]
+      summary: Suggest existing items that may match a parsed product name
+      description: Uses LLM to match a product name from receipt/email to user's inventory.
+      operationId: suggestMatches
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestMatchesRequest'
+      responses:
+        '200':
+          description: Ranked list of possible matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MatchSuggestion'
+
   /items/{itemId}:
     get:
       tags: [Items]
@@ -773,6 +881,34 @@ paths:
       responses:
         '204':
           description: Item deleted
+        '404':
+          description: Item not found
+
+  /items/{itemId}/add-quantity:
+    post:
+      tags: [Items]
+      summary: Add quantity to existing item (restock)
+      operationId: addQuantity
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddQuantityRequest'
+      responses:
+        '200':
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
         '404':
           description: Item not found
 
@@ -889,6 +1025,122 @@ paths:
                 $ref: '#/components/schemas/ImportReceiptResponse'
         '422':
           description: Could not parse the email content
+
+  /items/import/receipt/parse/stream:
+    post:
+      tags: [Import]
+      summary: Parse receipt only (create batch for review)
+      description: |
+        Extracts products from a receipt image via OCR + LLM. Creates an ImportBatch instead of saving items.
+        Returns SSE stream with progress events and final ImportBatchResponse. User reviews products
+        one-by-one via manual form and saves via POST /items.
+      operationId: parseReceiptStream
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                storeId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: SSE stream — event types progress, result (ImportBatchResponse), error
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events
+        '422':
+          description: Could not parse the receipt image
+
+  /items/import/email/parse/stream:
+    post:
+      tags: [Import]
+      summary: Parse email only (create batch for review)
+      description: |
+        Extracts products from raw email content via LLM. Creates an ImportBatch instead of saving items.
+        Returns SSE stream with progress events and final ImportBatchResponse. User reviews products
+        one-by-one via manual form and saves via POST /items.
+      operationId: parseEmailStream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportEmailRequest'
+      responses:
+        '200':
+          description: SSE stream — event types progress, result (ImportBatchResponse), error
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events
+        '422':
+          description: Could not parse the email content
+
+  # ── Import Batches ──────────────────────────────────────────────────────────
+
+  /import-batches:
+    get:
+      tags: [Import]
+      summary: List pending import batches
+      description: Returns all import batches for the user that are awaiting review (products not yet saved).
+      operationId: listImportBatches
+      responses:
+        '200':
+          description: List of pending batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImportBatchResponse'
+
+  /import-batches/{id}:
+    get:
+      tags: [Import]
+      summary: Get an import batch by ID
+      operationId: getImportBatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Batch details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatchResponse'
+        '404':
+          description: Batch not found
+    delete:
+      tags: [Import]
+      summary: Delete a pending import batch
+      operationId: deleteImportBatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Batch deleted
+        '404':
+          description: Batch not found
 
   # ── Forecast ───────────────────────────────────────────────────────────────
 
