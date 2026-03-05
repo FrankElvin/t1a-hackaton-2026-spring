@@ -8,6 +8,7 @@ interface AuthContextValue {
   isLoading: boolean
   token: string | undefined
   userEmail: string | undefined
+  userName: string | undefined
   login: () => void
   logout: () => void
   register: () => void
@@ -50,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         token: MOCK_AUTH ? 'mock-token' : keycloak.token,
         userEmail: MOCK_AUTH ? 'dev@example.com' : (keycloak.tokenParsed?.email as string | undefined),
+        userName: MOCK_AUTH ? 'Dev User' : ((keycloak.tokenParsed?.name ?? keycloak.tokenParsed?.preferred_username) as string | undefined),
         login: () => (MOCK_AUTH ? setIsAuthenticated(true) : keycloak.login()),
         logout: () => (MOCK_AUTH ? setIsAuthenticated(false) : keycloak.logout({ redirectUri: window.location.origin })),
         register: () => (MOCK_AUTH ? setIsAuthenticated(true) : keycloak.register()),
