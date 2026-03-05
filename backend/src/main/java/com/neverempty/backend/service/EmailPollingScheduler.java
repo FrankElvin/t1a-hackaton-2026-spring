@@ -11,8 +11,8 @@ import java.util.regex.Pattern;
 
 /**
  * Polls the Gmail inbox for forwarded purchase emails,
- * matches sender to a registered user by their notification email,
- * imports products and sends a confirmation reply.
+ * matches sender to a registered user by their notification email (household is determined by that user),
+ * imports products and sends a confirmation as a reply to the forwarded message.
  */
 @Slf4j
 @Service
@@ -25,7 +25,7 @@ public class EmailPollingScheduler {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("<([^>]+)>|([\\w.+-]+@[\\w.-]+)");
 
-    @Scheduled(fixedDelayString = "${app.email-poll-interval-ms:60000}")
+    @Scheduled(fixedDelayString = "${app.email-poll-interval-ms:10000}")
     public void pollInbox() {
         var emails = emailParserService.getUnreadEmails(10);
         if (emails.isEmpty()) return;
@@ -92,7 +92,17 @@ public class EmailPollingScheduler {
 
         body.append("\nView your inventory at https://neverempty.app/products");
 
-        emailParserService.sendEmail(senderEmail, "NeverEmpty: " + result.importedItems().size() + " products imported", body.toString());
+        var replySubject = email.subject() != null && !email.subject().isBlank()
+                ? (email.subject().trim().toLowerCase().startsWith("re:") ? "" : "Re: ") + email.subject().trim()
+                : "Re: Import successful";
+
+        emailParserService.sendReply(
+                senderEmail,
+                replySubject,
+                body.toString(),
+                email.threadId(),
+                email.messageIdHeader()
+        );
         emailParserService.markAsRead(email.id());
 
         log.info("Imported {} items for user {} from email", result.importedItems().size(), userId);

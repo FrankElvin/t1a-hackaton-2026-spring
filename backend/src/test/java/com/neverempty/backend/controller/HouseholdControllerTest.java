@@ -5,6 +5,7 @@ import com.neverempty.backend.model.Household;
 import com.neverempty.backend.model.enums.PersonCategory;
 import com.neverempty.backend.model.enums.PetCategory;
 import com.neverempty.backend.service.HouseholdService;
+import com.neverempty.backend.service.SettingsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -33,6 +34,9 @@ class HouseholdControllerTest {
 
     @MockitoBean
     private HouseholdService householdService;
+
+    @MockitoBean
+    private SettingsService settingsService;
 
     private static final String USER_ID = "user-1";
 

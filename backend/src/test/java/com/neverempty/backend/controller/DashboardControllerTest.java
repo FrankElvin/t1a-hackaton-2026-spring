@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neverempty.backend.dto.DashboardSummary;
 import com.neverempty.backend.dto.ItemForecast;
 import com.neverempty.backend.service.DashboardService;
+import com.neverempty.backend.service.SettingsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -31,6 +32,9 @@ class DashboardControllerTest {
 
     @MockitoBean
     private DashboardService dashboardService;
+
+    @MockitoBean
+    private SettingsService settingsService;
 
     private static ItemForecast sampleForecast(String id, String name, int daysUntil) {
         return new ItemForecast(
