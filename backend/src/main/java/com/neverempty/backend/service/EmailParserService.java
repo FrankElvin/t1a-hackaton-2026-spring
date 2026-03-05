@@ -178,6 +178,30 @@ public class EmailParserService {
     }
 
     /**
+     * Send an HTML email.
+     */
+    public void sendHtmlEmail(String to, String subject, String htmlBody) {
+        if (gmail == null) {
+            log.warn("Gmail not initialized, cannot send email");
+            return;
+        }
+
+        try {
+            var email = "To: " + to + "\r\n" +
+                    "From: " + properties.google().gmailImpersonateEmail() + "\r\n" +
+                    "Subject: " + subject + "\r\n" +
+                    "Content-Type: text/html; charset=utf-8\r\n\r\n" +
+                    htmlBody;
+
+            var raw = Base64.getUrlEncoder().encodeToString(email.getBytes(StandardCharsets.UTF_8));
+            var message = new Message().setRaw(raw);
+            gmail.users().messages().send("me", message).execute();
+        } catch (Exception e) {
+            log.error("Failed to send HTML email to {}", to, e);
+        }
+    }
+
+    /**
      * Send a reply to the original message so it appears in the same thread.
      * Uses In-Reply-To and References headers and threadId for proper threading.
      */
