@@ -2,12 +2,15 @@ package com.neverempty.backend.controller;
 
 import com.neverempty.backend.dto.AddQuantityRequest;
 import com.neverempty.backend.dto.CreateItemRequest;
+import com.neverempty.backend.dto.EstimateDaysToRestockRequest;
+import com.neverempty.backend.dto.EstimateDaysToRestockResponse;
 import com.neverempty.backend.dto.MarkAsBoughtRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
 import com.neverempty.backend.dto.SuggestMatchesRequest;
 import com.neverempty.backend.dto.MatchSuggestion;
 import com.neverempty.backend.model.Item;
 import com.neverempty.backend.model.enums.ItemCategory;
+import com.neverempty.backend.service.ItemEstimateService;
 import com.neverempty.backend.service.ItemMatchService;
 import com.neverempty.backend.service.ItemService;
 import com.neverempty.backend.service.SettingsService;
@@ -27,6 +30,7 @@ public class ItemController {
 
     private final ItemService itemService;
     private final ItemMatchService itemMatchService;
+    private final ItemEstimateService itemEstimateService;
     private final SettingsService settingsService;
 
     @GetMapping("/items")
@@ -103,6 +107,15 @@ public class ItemController {
         return itemService.addQuantity(userId, itemId, request)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/items/estimate-days-to-restock")
+    public ResponseEntity<EstimateDaysToRestockResponse> estimateDaysToRestock(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody EstimateDaysToRestockRequest request) {
+        var userId = jwt.getSubject();
+        var days = itemEstimateService.estimateDaysToRestock(userId, request);
+        return ResponseEntity.ok(new EstimateDaysToRestockResponse(days));
     }
 
     @PostMapping("/items/suggest-matches")

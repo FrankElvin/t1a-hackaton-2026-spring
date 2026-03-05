@@ -220,21 +220,14 @@ test.describe('Add Product Page', () => {
     test('shows camera or manual entry', async ({ page }) => {
       await page.getByRole('tab', { name: /barcode/i }).click()
 
-      // Either camera UI or "not supported" message
-      const hasCamera = await page.getByRole('button', { name: /start camera/i }).isVisible()
-      const hasNotSupported = await page
-        .getByText(/not supported in this browser/i)
-        .isVisible()
-      const hasManualEntry = await page.getByPlaceholder(/e\.g\. 4006381333931/i).isVisible()
-
-      expect(hasCamera || hasNotSupported).toBeTruthy()
-      expect(hasManualEntry).toBeTruthy()
+      // html5-qrcode works on all browsers — camera button is always shown
+      await expect(page.getByRole('button', { name: /start camera/i })).toBeVisible()
+      await expect(page.getByPlaceholder(/e\.g\. 4006381333931/i)).toBeVisible()
       await expect(page.getByRole('button', { name: /look up/i })).toBeVisible()
     })
 
-    test('manual barcode lookup pre-fills manual form', async ({ page }) => {
-      // Mock Open Food Facts for deterministic test (no external API)
-      await page.route('**/api/v2/product/*.json', async (route) => {
+    test('manual barcode lookup shows review form (same as receipt/email)', async ({ page }) => {
+      await page.route('**/openfoodfacts.org/**', async (route) => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -252,14 +245,11 @@ test.describe('Add Product Page', () => {
       await page.getByPlaceholder(/e\.g\. 4006381333931/i).fill('3017620422003')
       await page.getByRole('button', { name: /look up/i }).click()
 
-      // After lookup, switches to manual tab with pre-filled data
-      await expect(page.getByRole('tab', { name: /manual/i })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      await expect(page.getByPlaceholder(/e\.g\. Oat Milk/i)).toHaveValue(
-        /E2E Test Product|3017620422003/
-      )
+      await expect(page.getByText(/review each product/i)).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText(/E2E Test Product/)).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: /create new|save & next|skip|done/i })
+      ).toBeVisible()
     })
   })
 

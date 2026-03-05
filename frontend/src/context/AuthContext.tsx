@@ -17,7 +17,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(MOCK_AUTH)
   const [isLoading, setIsLoading] = useState(!MOCK_AUTH)
 
   useEffect(() => {

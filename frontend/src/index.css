@@ -50,3 +50,18 @@
     display: none;
   }
 }
+
+/* html5-qrcode overrides */
+#barcode-reader {
+  border: none !important;
+}
+#barcode-reader video {
+  border-radius: 0.75rem;
+}
+#barcode-reader img[alt="Info icon"] {
+  display: none !important;
+}
+/* Hide the built-in file scan / permission UI */
+#barcode-reader > div:last-child {
+  display: none !important;
+}

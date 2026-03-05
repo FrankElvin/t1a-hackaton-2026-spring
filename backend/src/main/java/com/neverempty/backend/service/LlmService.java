@@ -136,6 +136,30 @@ public class LlmService {
             Return ONLY an integer (number of days). Nothing else.
             """;
 
+    private static final String ESTIMATE_RUNOUT_WITH_HOUSEHOLD_PROMPT = """
+            You are a household consumption estimator.
+            Given a product (name, quantity, unit) and household composition, estimate how many DAYS until this product runs out.
+            Your answer must be DAYS, not quantity. Do NOT echo the quantity — estimate based on typical consumption rate.
+
+            IMPORTANT: Consider which household members actually USE this product.
+            - PARROT does NOT use toilet paper, paper towels, cleaning supplies, human food, personal care.
+            - CAT and DOG typically consume only pet food and pet-specific products.
+            - SMALL_ANIMAL (hamsters etc.) consume only their specific food.
+            - Only count humans (ADULT, CHILD) for toilet paper, milk, bread, soap, alcohol.
+            - Count pets only for PET_FOOD and pet-specific items.
+            Use common sense to estimate the effective number of consumers.
+
+            Reference consumption (DAYS until depletion, not quantity):
+            - Milk 1L, 2 adults: ~3-5 days
+            - Vodka/whiskey 1 bottle (0.7L): ~7-14 days per bottle (moderate); 21 bottles = ~150-300 days
+            - Toilet paper 12 rolls, 2 adults: ~14-21 days
+            - Bread 500g, 2 adults: ~3-4 days
+            - Eggs 10 pcs, family of 4: ~7-10 days
+            Scale by quantity: more units = more days, but not 1:1 — consumption rate matters.
+
+            Return ONLY an integer (days until product runs out). Nothing else.
+            """;
+
     private final String apiKey;
     private final String baseUrl;
     private final String model;
@@ -241,6 +265,37 @@ public class LlmService {
             return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
             log.warn("LLM returned non-integer for runout estimation: '{}', defaulting to 7", raw);
+            return 7;
+        }
+    }
+
+    /**
+     * Estimate days to restock for a product given household composition.
+     * Uses prompt that considers which members actually consume the product
+     * (e.g. parrot does not use toilet paper).
+     */
+    public int estimateDaysToRestockWithHousehold(
+            String name, double quantity, String unit, String category, String consumerCategory,
+            String householdDescription, LocalDate lastBought) {
+        var content = """
+                Product: %s
+                Quantity: %s %s
+                Category: %s
+                Primary consumer type: %s
+                Household composition: %s
+                Last bought: %s
+                """.formatted(
+                name, quantity, unit,
+                category != null && !category.isBlank() ? category : "unknown",
+                consumerCategory != null && !consumerCategory.isBlank() ? consumerCategory : "not specified",
+                householdDescription != null && !householdDescription.isBlank() ? householdDescription : "unknown",
+                lastBought != null ? lastBought : "unknown");
+        var raw = callLlm(ESTIMATE_RUNOUT_WITH_HOUSEHOLD_PROMPT, content).trim();
+        try {
+            int days = Integer.parseInt(raw);
+            return Math.max(1, days);
+        } catch (NumberFormatException e) {
+            log.warn("LLM returned non-integer for days-to-restock: '{}', defaulting to 7", raw);
             return 7;
         }
     }

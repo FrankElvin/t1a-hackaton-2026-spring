@@ -121,7 +121,7 @@ export interface ImportReceiptResponse {
   unrecognizedLines: string[]
 }
 
-export type ImportBatchSource = 'RECEIPT' | 'EMAIL'
+export type ImportBatchSource = 'RECEIPT' | 'EMAIL' | 'BARCODE'
 
 export interface ParsedProductDto {
   index: number

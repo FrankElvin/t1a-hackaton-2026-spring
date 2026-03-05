@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Html5Qrcode } from 'html5-qrcode'
 import api from '@/lib/axios'
 import keycloak from '@/lib/keycloak'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,7 @@ interface FormState {
   price: string
   daysToRestock: string
   autoCalc: boolean
+  aiForecast: boolean
   standardPurchaseQuantity: string
 }
 
@@ -44,6 +46,7 @@ const EMPTY_FORM: FormState = {
   price: '',
   daysToRestock: '',
   autoCalc: true,
+  aiForecast: false,
   standardPurchaseQuantity: '',
 }
 
@@ -56,13 +59,6 @@ const CONSUMER_CATEGORY_LABELS: Record<ConsumerCategory, string> = {
   DOG: 'Dogs',
   PARROT: 'Parrots',
   SMALL_ANIMAL: 'Small Animals',
-}
-
-// BarcodeDetector is not yet in TypeScript's DOM lib
-declare class BarcodeDetector {
-  constructor(options?: { formats: string[] })
-  detect(image: ImageBitmapSource): Promise<Array<{ rawValue: string; format: string }>>
-  static getSupportedFormats(): Promise<string[]>
 }
 
 interface LogEntry {
@@ -126,6 +122,23 @@ function timeStamp(): string {
   return new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function fallbackNameMatches(productName: string, items: Item[]): MatchSuggestion[] {
+  const q = productName.toLowerCase().trim()
+  if (!q || items.length === 0) return []
+  return items
+    .map((i) => {
+      const name = i.name.toLowerCase()
+      let score = 0.5
+      if (name === q) score = 1
+      else if (name.includes(q) || q.includes(name)) score = 0.7
+      else if (name.split(/\s+/).some((w) => q.includes(w) || q.split(/\s+/).includes(w))) score = 0.5
+      return { itemId: i.id, name: i.name, score }
+    })
+    .filter((s) => s.score >= 0.5)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+}
+
 async function getAuthHeaders(): Promise<Record<string, string>> {
   if (MOCK_AUTH) return {}
   try {
@@ -135,6 +148,19 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     throw new Error('Token expired')
   }
   return { Authorization: `Bearer ${keycloak.token}` }
+}
+
+async function estimateDaysToRestock(form: FormState): Promise<number> {
+  if (MOCK_AUTH) return 7
+  const res = await api.post<{ daysToRestock: number }>('/items/estimate-days-to-restock', {
+    name: form.name.trim(),
+    quantity: parseFloat(form.currentQuantity) || 1,
+    unit: form.unit.trim() || 'pcs',
+    category: null,
+    consumerCategory: form.consumerCategory || null,
+    lastBoughtDate: form.lastBoughtDate || null,
+  })
+  return res.data.daysToRestock
 }
 
 // ── Mock functions for batch parse (used when MOCK_AUTH=true) ──
@@ -215,7 +241,7 @@ async function streamParseImport(
     if (done) break
     buffer += decoder.decode(value, { stream: true })
 
-    const lines = buffer.split('\n')
+    const lines = buffer.split(/\r?\n/)
     buffer = lines.pop() || ''
 
     let eventName = ''
@@ -223,20 +249,24 @@ async function streamParseImport(
       if (line.startsWith('event:')) {
         eventName = line.slice(6).trim()
       } else if (line.startsWith('data:')) {
-        const data = line.slice(5)
+        const data = line.slice(5).trim()
         if (eventName === 'progress') {
           onProgress(data)
         } else if (eventName === 'result') {
-          result = JSON.parse(data)
+          try {
+            result = JSON.parse(data)
+          } catch (e) {
+            throw new Error(`Invalid server response: ${data.slice(0, 80)}...`)
+          }
         } else if (eventName === 'error') {
-          throw new Error(data)
+          throw new Error(data || 'Server error during import')
         }
         eventName = ''
       }
     }
   }
 
-  if (!result) throw new Error('No result received from server')
+  if (!result) throw new Error('No result received from server. The import may have timed out.')
   return result
 }
 
@@ -248,6 +278,7 @@ type ReviewProductMode = 'choose' | 'existing' | 'new'
 interface ReviewProductFormProps {
   parsed: ParsedProductDto
   batchStoreId?: string
+  barcodePreview?: BarcodeProductPreview | null
   mode: ReviewProductMode
   setMode: (m: ReviewProductMode) => void
   selectedExistingItem: Item | null
@@ -261,6 +292,9 @@ interface ReviewProductFormProps {
   showAdditional: boolean
   setShowAdditional: React.Dispatch<React.SetStateAction<boolean>>
   saveError: string | null
+  setSaveError: (msg: string | null) => void
+  onEstimateDays: (form: FormState) => Promise<number>
+  isEstimating: boolean
   onBack: () => void
   onSave: (req?: CreateItemRequest) => void
   onSkip: () => void
@@ -270,6 +304,7 @@ interface ReviewProductFormProps {
 
 function ReviewProductForm({
   parsed,
+  barcodePreview,
   mode,
   setMode,
   selectedExistingItem,
@@ -283,6 +318,9 @@ function ReviewProductForm({
   showAdditional,
   setShowAdditional,
   saveError,
+  setSaveError,
+  onEstimateDays,
+  isEstimating,
   onBack,
   onSave,
   onSkip,
@@ -301,6 +339,24 @@ function ReviewProductForm({
 
   return (
     <div role="tabpanel" className="space-y-4">
+      {barcodePreview && (
+        <div className="flex gap-4 p-3 rounded-xl bg-green-50 border border-green-200">
+          {barcodePreview.imageUrl ? (
+            <img
+              src={barcodePreview.imageUrl}
+              alt={barcodePreview.name}
+              className="w-16 h-16 rounded-lg object-cover shrink-0"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center shrink-0 text-2xl">📦</div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-green-900 truncate">{barcodePreview.name}</p>
+            {barcodePreview.brand && <p className="text-sm text-green-700">{barcodePreview.brand}</p>}
+            <p className="text-xs text-green-600">{barcodePreview.quantity} {barcodePreview.unit} · {barcodePreview.barcode}</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <button
           type="button"
@@ -408,8 +464,21 @@ function ReviewProductForm({
 
       {mode === 'new' && (
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault()
+            let daysToRestock: number | undefined
+            let autoCalc = form.autoCalc
+            if (!form.daysToRestock && form.aiForecast) {
+              try {
+                daysToRestock = await onEstimateDays(form)
+                autoCalc = true
+              } catch {
+                setSaveError('Failed to estimate days. Try entering days manually.')
+                return
+              }
+            } else if (form.daysToRestock) {
+              daysToRestock = parseInt(form.daysToRestock, 10)
+            }
             const req: CreateItemRequest = {
               name: form.name.trim(),
               currentQuantity: parseFloat(form.currentQuantity) || 0,
@@ -418,8 +487,8 @@ function ReviewProductForm({
               ...(form.storeId ? { storeId: form.storeId } : {}),
               ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
               ...(form.price ? { price: parseFloat(form.price) } : {}),
-              ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
-              autoCalc: form.autoCalc,
+              ...(daysToRestock != null ? { daysToRestock } : {}),
+              autoCalc,
               ...(form.standardPurchaseQuantity
                 ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
                 : {}),
@@ -565,6 +634,30 @@ function ReviewProductForm({
             <p className="text-xs text-gray-400">How many days until you need to buy this again</p>
           </div>
 
+          {!form.daysToRestock && (
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-medium text-gray-700">AI Forecast</p>
+                <p className="text-xs text-gray-400">
+                  Estimate days to restock using AI based on product, quantity, and household
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, aiForecast: !p.aiForecast }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.aiForecast ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.aiForecast ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
           {form.daysToRestock && (
             <div className="flex items-center justify-between py-1">
               <div>
@@ -681,8 +774,8 @@ function ReviewProductForm({
 
           {saveError && <p className="text-sm text-red-500">{saveError}</p>}
           <div className="flex gap-2">
-            <Button type="submit" className="flex-1">
-              Save & Next
+            <Button type="submit" className="flex-1" disabled={isEstimating}>
+              {isEstimating ? 'Estimating…' : 'Save & Next'}
             </Button>
             <Button type="button" variant="outline" onClick={onSkip}>
               Skip
@@ -709,6 +802,9 @@ export default function AddProductPage() {
   const [barcodeProductPreview, setBarcodeProductPreview] = useState<BarcodeProductPreview | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showAdditional, setShowAdditional] = useState(false)
+  const [manualNameSuggestionsOpen, setManualNameSuggestionsOpen] = useState(false)
+  const manualNameInputRef = useRef<HTMLInputElement | null>(null)
+  const [isEstimating, setIsEstimating] = useState(false)
 
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ['stores'],
@@ -755,7 +851,7 @@ export default function AddProductPage() {
     queryFn: MOCK_AUTH
       ? () => Promise.resolve(mockItems)
       : () => api.get<Item[]>('/items').then((r) => r.data),
-    enabled: !!reviewBatch,
+    enabled: !!reviewBatch || method === 'manual' || method === 'barcode',
   })
 
   const [reviewProductMode, setReviewProductMode] = useState<ReviewProductMode>('choose')
@@ -769,18 +865,11 @@ export default function AddProductPage() {
     'inbox@neverempty.app'
 
   // Barcode state
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null)
   const [scanning, setScanning] = useState(false)
-  const [barcodeSupported, setBarcodeSupported] = useState<boolean | null>(null)
   const [barcodeError, setBarcodeError] = useState<string | null>(null)
   const [manualBarcode, setManualBarcode] = useState('')
   const [lookingUp, setLookingUp] = useState(false)
-  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-
-  useEffect(() => {
-    setBarcodeSupported('BarcodeDetector' in window)
-  }, [])
 
   // ── Review batch effects ──
   function prefillFromParsed(p: ParsedProductDto, batchStoreId?: string) {
@@ -817,7 +906,7 @@ export default function AddProductPage() {
     setReviewProductMode('choose')
     setMatchSuggestionsLoading(true)
     if (MOCK_AUTH) {
-      setMatchSuggestions([])
+      setMatchSuggestions(fallbackNameMatches(parsed.name, items))
       setMatchSuggestionsLoading(false)
       prefillFromParsed(parsed, reviewBatch.storeId)
       return
@@ -825,21 +914,23 @@ export default function AddProductPage() {
     api
       .post<MatchSuggestion[]>('/items/suggest-matches', { productName: parsed.name })
       .then((r) => {
-        setMatchSuggestions(r.data)
+        const llm = r.data ?? []
+        if (llm.length > 0) {
+          setMatchSuggestions(llm)
+        } else {
+          setMatchSuggestions(fallbackNameMatches(parsed.name, items))
+        }
         prefillFromParsed(parsed, reviewBatch.storeId)
       })
-      .catch(() => setMatchSuggestions([]))
+      .catch(() => setMatchSuggestions(fallbackNameMatches(parsed.name, items)))
       .finally(() => setMatchSuggestionsLoading(false))
   }, [reviewBatch, reviewIndex, items])
 
   const stopScanning = useCallback(() => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current)
-      scanIntervalRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
+    if (html5QrCodeRef.current) {
+      const scanner = html5QrCodeRef.current
+      html5QrCodeRef.current = null
+      scanner.stop().then(() => scanner.clear()).catch(() => {})
     }
     setScanning(false)
   }, [])
@@ -850,33 +941,22 @@ export default function AddProductPage() {
 
   async function startScanning() {
     setBarcodeError(null)
+    if (html5QrCodeRef.current) return
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
-      }
+      const qrCode = new Html5Qrcode('barcode-reader')
+      html5QrCodeRef.current = qrCode
+      await qrCode.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 4 / 3 },
+        (decodedText) => {
+          stopScanning()
+          lookupBarcode(decodedText)
+        },
+        () => {} // per-frame errors — ignore
+      )
       setScanning(true)
-      const detector = new BarcodeDetector({
-        formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
-      })
-      scanIntervalRef.current = setInterval(async () => {
-        if (!videoRef.current) return
-        try {
-          const barcodes = await detector.detect(videoRef.current)
-          if (barcodes.length > 0) {
-            const barcode = barcodes[0].rawValue
-            stopScanning()
-            await lookupBarcode(barcode)
-          }
-        } catch {
-          // per-frame detection error — continue scanning
-        }
-      }, 300)
     } catch {
+      html5QrCodeRef.current = null
       setBarcodeError('Camera access denied or unavailable. Try typing the barcode below.')
     }
   }
@@ -887,45 +967,62 @@ export default function AddProductPage() {
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`)
       const data = await res.json()
+      let name: string
+      let quantity: string
+      let unit: string
       if (data.status === 1 && data.product) {
         const p = data.product
-        const name = p.product_name || p.product_name_en || barcode
+        name = p.product_name || p.product_name_en || barcode
         const rawQty: string = p.quantity || ''
         const qtyMatch = rawQty.match(/^([\d.]+)\s*(.*)$/)
-        const quantity = qtyMatch ? qtyMatch[1] : '1'
-        const unit = qtyMatch && qtyMatch[2] ? qtyMatch[2].trim() : 'pcs'
-        const imageUrl =
-          p.image_front_small_url ||
-          p.image_small_url ||
-          p.image_url ||
-          p.image_front_url ||
-          null
-        const brand = p.brands || ''
-        setForm((prev) => ({
-          ...prev,
-          name,
-          currentQuantity: quantity,
-          unit,
-        }))
-        setPrefillBanner(`Found: ${name}`)
+        quantity = qtyMatch ? qtyMatch[1] : '1'
+        unit = qtyMatch && qtyMatch[2] ? qtyMatch[2].trim() : 'pcs'
         setBarcodeProductPreview({
           name,
-          brand,
-          imageUrl,
+          brand: p.brands || '',
+          imageUrl:
+            p.image_front_small_url ||
+            p.image_small_url ||
+            p.image_url ||
+            p.image_front_url ||
+            null,
           barcode,
           quantity,
           unit,
         })
       } else {
-        setForm((prev) => ({ ...prev, name: `Product ${barcode}` }))
-        setPrefillBanner(`Barcode ${barcode} not found in database — fill in details manually`)
+        name = `Product ${barcode}`
+        quantity = '1'
+        unit = 'pcs'
       }
+      const batch: ImportBatchResponse = {
+        id: `barcode-${barcode}`,
+        source: 'BARCODE',
+        parsedProducts: [
+          { index: 1, name, quantity: parseFloat(quantity) || 1, unit },
+        ],
+        unrecognizedLines: [],
+        createdAt: new Date().toISOString(),
+      }
+      setReviewBatch(batch)
+      setReviewIndex(0)
+      prefillFromParsed(batch.parsedProducts[0])
+      setMethod('barcode')
     } catch {
-      setForm((prev) => ({ ...prev, name: `Product ${barcode}` }))
-      setPrefillBanner(`Barcode ${barcode} — fill in details manually`)
+      const name = `Product ${barcode}`
+      const batch: ImportBatchResponse = {
+        id: `barcode-${barcode}`,
+        source: 'BARCODE',
+        parsedProducts: [{ index: 1, name, quantity: 1, unit: 'pcs' }],
+        unrecognizedLines: [],
+        createdAt: new Date().toISOString(),
+      }
+      setReviewBatch(batch)
+      setReviewIndex(0)
+      prefillFromParsed(batch.parsedProducts[0])
+      setMethod('barcode')
     }
     setLookingUp(false)
-    setMethod('manual')
   }
 
   // Manual save
@@ -943,9 +1040,25 @@ export default function AddProductPage() {
     onError: () => setSaveError('Failed to save. Please try again.'),
   })
 
-  function handleManualSubmit(e: React.FormEvent) {
+  async function handleManualSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaveError(null)
+    let daysToRestock: number | undefined
+    let autoCalc = form.autoCalc
+    if (!form.daysToRestock && form.aiForecast) {
+      setIsEstimating(true)
+      try {
+        daysToRestock = await estimateDaysToRestock(form)
+        autoCalc = true
+      } catch {
+        setSaveError('Failed to estimate days. Try entering days manually.')
+        return
+      } finally {
+        setIsEstimating(false)
+      }
+    } else if (form.daysToRestock) {
+      daysToRestock = parseInt(form.daysToRestock, 10)
+    }
     const req: CreateItemRequest = {
       name: form.name.trim(),
       currentQuantity: parseFloat(form.currentQuantity) || 0,
@@ -954,8 +1067,8 @@ export default function AddProductPage() {
       ...(form.storeId ? { storeId: form.storeId } : {}),
       ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
       ...(form.price ? { price: parseFloat(form.price) } : {}),
-      ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
-      autoCalc: form.autoCalc,
+      ...(daysToRestock != null ? { daysToRestock } : {}),
+      autoCalc,
       ...(form.standardPurchaseQuantity
         ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
         : {}),
@@ -1012,7 +1125,7 @@ export default function AddProductPage() {
   }
 
   function finishReview() {
-    if (reviewBatch && !MOCK_AUTH) {
+    if (reviewBatch && reviewBatch.source !== 'BARCODE' && !MOCK_AUTH) {
       api.delete(`/import-batches/${reviewBatch.id}`).catch(() => {})
     }
     refetchBatches()
@@ -1137,8 +1250,8 @@ export default function AddProductPage() {
             aria-controls={`panel-${m.id}`}
             id={`tab-${m.id}`}
             onClick={() => {
-              setMethod(m.id)
               stopScanning()
+              setMethod(m.id)
             }}
             className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-colors text-sm font-medium ${
               method === m.id
@@ -1203,17 +1316,47 @@ export default function AddProductPage() {
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 relative">
             <Label htmlFor="name">
               Name <span className="text-red-500">*</span>
             </Label>
             <Input
               id="name"
+              ref={(el) => { manualNameInputRef.current = el }}
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              onFocus={() => setManualNameSuggestionsOpen(true)}
+              onBlur={() => setTimeout(() => setManualNameSuggestionsOpen(false), 150)}
               placeholder="e.g. Oat Milk"
               required
             />
+            {manualNameSuggestionsOpen &&
+              form.name.trim() &&
+              (() => {
+                const filtered = items.filter((i) =>
+                  i.name.toLowerCase().includes(form.name.toLowerCase().trim())
+                ).slice(0, 6)
+                return filtered.length > 0 ? (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-48 overflow-auto">
+                    {filtered.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setForm((p) => ({ ...p, name: item.name, unit: item.unit }))
+                          setManualNameSuggestionsOpen(false)
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
+                      >
+                        {item.name}
+                        <span className="text-xs text-gray-400 ml-2">
+                          {item.currentQuantity} {item.unit}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null
+              })()}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1312,6 +1455,30 @@ export default function AddProductPage() {
             />
             <p className="text-xs text-gray-400">How many days until you need to buy this again</p>
           </div>
+
+          {!form.daysToRestock && (
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-medium text-gray-700">AI Forecast</p>
+                <p className="text-xs text-gray-400">
+                  Estimate days to restock using AI based on product, quantity, and household
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, aiForecast: !p.aiForecast }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.aiForecast ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.aiForecast ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
 
           {form.daysToRestock && (
             <div className="flex items-center justify-between py-1">
@@ -1429,18 +1596,19 @@ export default function AddProductPage() {
 
           {saveError && <p className="text-sm text-red-500">{saveError}</p>}
 
-          <Button type="submit" className="w-full" disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? 'Saving…' : 'Save Product'}
+          <Button type="submit" className="w-full" disabled={isEstimating || saveMutation.isPending}>
+            {isEstimating ? 'Estimating…' : saveMutation.isPending ? 'Saving…' : 'Save Product'}
           </Button>
         </form>
         </div>
       )}
 
       {/* ── Review batch flow (from an_dev) ── */}
-      {reviewBatch && (method === 'receipt' || method === 'email') && (
+      {reviewBatch && (method === 'receipt' || method === 'email' || method === 'barcode') && (
         <ReviewProductForm
           parsed={reviewBatch.parsedProducts[reviewIndex]}
           batchStoreId={reviewBatch.storeId}
+          barcodePreview={method === 'barcode' ? barcodeProductPreview : null}
           mode={reviewProductMode}
           setMode={setReviewProductMode}
           selectedExistingItem={selectedExistingItem}
@@ -1454,17 +1622,28 @@ export default function AddProductPage() {
           showAdditional={showAdditional}
           setShowAdditional={setShowAdditional}
           saveError={saveError}
+          setSaveError={setSaveError}
+          isEstimating={isEstimating}
+          onEstimateDays={async (f) => {
+            setIsEstimating(true)
+            try {
+              return await estimateDaysToRestock(f)
+            } finally {
+              setIsEstimating(false)
+            }
+          }}
           onBack={() => {
             setReviewBatch(null)
             setReviewIndex(0)
             setReceiptFile(null)
             setReceiptPreview(null)
             setEmailContent('')
+            setBarcodeProductPreview(null)
           }}
           onSave={handleReviewSave}
           onSkip={advanceReview}
           onDone={finishReview}
-          progress={`${reviewIndex + 1} / ${reviewBatch.parsedProducts.length}`}
+          progress={`${reviewIndex + 1} / ${reviewBatch.parsedProducts.length} products to review`}
         />
       )}
 
@@ -1640,58 +1819,35 @@ export default function AddProductPage() {
       )}
 
       {/* ── Barcode Scan ── */}
-      {method === 'barcode' && (
+      {method === 'barcode' && !reviewBatch && (
         <div role="tabpanel" id="panel-barcode" aria-labelledby="tab-barcode" className="space-y-4">
-          {barcodeSupported === false && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
-              <p className="text-sm text-yellow-800 font-medium">
-                Live barcode scanning is not supported in this browser.
-              </p>
-              <p className="text-xs text-yellow-600 mt-1">
-                Try Chrome on Android or use the manual entry below.
-              </p>
-            </div>
-          )}
-
-          {barcodeSupported && (
-            <>
-              <div
-                className="relative bg-black rounded-xl overflow-hidden"
-                style={{ aspectRatio: '4/3' }}
-              >
-                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
-                {!scanning && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
-                    <div className="text-5xl">🔳</div>
-                    <p className="text-sm text-white/70">Camera off</p>
-                  </div>
-                )}
-                {scanning && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="border-2 border-white/80 rounded-lg w-48 h-32 shadow-lg" />
-                  </div>
-                )}
+          <div className="relative bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '4/3' }}>
+            <div id="barcode-reader" className={scanning ? '' : 'hidden'} />
+            {!scanning && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
+                <div className="text-5xl">🔳</div>
+                <p className="text-sm text-white/70">Camera off</p>
               </div>
+            )}
+          </div>
 
-              {barcodeError && (
-                <p className="text-sm text-red-500 text-center">{barcodeError}</p>
-              )}
-
-              {!scanning ? (
-                <Button className="w-full" onClick={startScanning}>
-                  Start Camera
-                </Button>
-              ) : (
-                <Button variant="outline" className="w-full" onClick={stopScanning}>
-                  Stop Camera
-                </Button>
-              )}
-
-              <p className="text-xs text-gray-400 text-center">
-                Point camera at a product barcode — it will be looked up automatically.
-              </p>
-            </>
+          {barcodeError && (
+            <p className="text-sm text-red-500 text-center">{barcodeError}</p>
           )}
+
+          {!scanning ? (
+            <Button className="w-full" onClick={startScanning}>
+              Start Camera
+            </Button>
+          ) : (
+            <Button variant="outline" className="w-full" onClick={stopScanning}>
+              Stop Camera
+            </Button>
+          )}
+
+          <p className="text-xs text-gray-400 text-center">
+            Point camera at a product barcode — it will be looked up automatically.
+          </p>
 
           {/* Manual barcode entry fallback */}
           <div className="relative pt-2">
