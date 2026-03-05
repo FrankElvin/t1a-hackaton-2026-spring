@@ -18,57 +18,40 @@ import { readFile } from 'fs/promises'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BASE = process.env.QA_BASE_URL || 'http://localhost:5173'
 
-// Mock ImportReceiptResponse for SSE stream
-const MOCK_IMPORT_RESPONSE = {
-  importedItems: [
-    {
-      id: 'e2e-imported-1',
-      name: 'Milk 2%',
-      category: 'BEVERAGES',
-      currentQuantity: 2,
-      unit: 'L',
-      price: 2.99,
-    },
-    {
-      id: 'e2e-imported-2',
-      name: 'Whole Wheat Bread',
-      category: 'FOOD',
-      currentQuantity: 1,
-      unit: 'pcs',
-      price: 3.49,
-    },
-  ],
-  unrecognizedLines: ['UNKNOWN ITEM XYZ'],
-}
-
-/**
- * Helper to create SSE stream response for import endpoints
- */
-function createSseStreamResponse(result: object): string {
-  const resultData = JSON.stringify(result)
-  return `event: progress\ndata: Extracting text...\n\nevent: progress\ndata: AI identified 2 products\n\nevent: result\ndata: ${resultData}\n\n`
-}
-
 test.describe('Add Product Page', () => {
   test.beforeEach(async ({ page }) => {
     // Mock import APIs so tests run without OCR/LLM (MOCK_AUTH has no backend token)
-    await page.route('**/api/v1/items/import/receipt/stream', async (route) => {
+    // Parse endpoints return ImportBatchResponse (products to review)
+    const MOCK_BATCH_RESPONSE = {
+      id: 'e2e-batch-1',
+      source: 'RECEIPT',
+      parsedProducts: [
+        { index: 1, name: 'Milk 2%', quantity: 2, unit: 'L', category: 'BEVERAGES' },
+        { index: 2, name: 'Whole Wheat Bread', quantity: 1, unit: 'pcs', category: 'FOOD' },
+      ],
+      unrecognizedLines: ['UNKNOWN ITEM XYZ'],
+      createdAt: new Date().toISOString(),
+    }
+    const createParseSseResponse = (result: object) =>
+      `event: progress\ndata: Parsing...\n\nevent: progress\ndata: Import batch ready\n\nevent: result\ndata: ${JSON.stringify(result)}\n\n`
+
+    await page.route('**/api/v1/items/import/receipt/parse/stream', async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 200,
           contentType: 'text/event-stream',
-          body: createSseStreamResponse(MOCK_IMPORT_RESPONSE),
+          body: createParseSseResponse(MOCK_BATCH_RESPONSE),
         })
       } else {
         await route.continue()
       }
     })
-    await page.route('**/api/v1/items/import/email/stream', async (route) => {
+    await page.route('**/api/v1/items/import/email/parse/stream', async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 200,
           contentType: 'text/event-stream',
-          body: createSseStreamResponse(MOCK_IMPORT_RESPONSE),
+          body: createParseSseResponse({ ...MOCK_BATCH_RESPONSE, source: 'EMAIL' }),
         })
       } else {
         await route.continue()
@@ -149,13 +132,13 @@ test.describe('Add Product Page', () => {
   })
 
   test.describe('Receipt import', () => {
-    test('shows upload area and Scan Receipt button', async ({ page }) => {
+    test('shows upload area and Parse & Review button', async ({ page }) => {
       await page.getByRole('tab', { name: /receipt/i }).click()
       await expect(page.getByText(/tap to upload receipt photo/i)).toBeVisible()
       await expect(page.getByText(/JPEG or PNG/)).toBeVisible()
     })
 
-    test('uploads file, runs import, shows success with imported items', async ({
+    test('uploads file, parses, shows review form with first product', async ({
       page,
     }) => {
       await page.getByRole('tab', { name: /receipt/i }).click()
@@ -165,34 +148,34 @@ test.describe('Add Product Page', () => {
       await fileInput.setInputFiles(receiptPath)
 
       await expect(page.getByAltText(/receipt preview/i)).toBeVisible()
-      await page.getByRole('button', { name: /scan receipt/i }).click()
+      await page.getByRole('button', { name: /parse & review/i }).click()
 
-      // Wait for success
+      // Wait for review flow
       await expect(
-        page.getByText(/products imported successfully/, { exact: false })
+        page.getByText(/review each product/i)
       ).toBeVisible({ timeout: 15000 })
 
-      await expect(page.getByText('Milk 2%')).toBeVisible()
-      await expect(page.getByText('2 L')).toBeVisible()
-      await expect(page.getByText('Whole Wheat Bread')).toBeVisible()
-      await expect(page.getByText('1 pcs')).toBeVisible()
-      await expect(page.getByText('1 lines skipped')).toBeVisible()
-
-      // Scan Another and Done buttons
-      await expect(page.getByRole('button', { name: /scan another/i })).toBeVisible()
+      // First shows choose: link to existing or create new
+      await expect(page.getByText(/review each product/i)).toBeVisible()
+      await expect(page.getByRole('button', { name: /create new/i })).toBeVisible()
+      await page.getByRole('button', { name: /create new/i }).click()
+      // Full form with name autocomplete
+      await expect(page.locator('input#review-name')).toHaveValue(/.+/)
+      await expect(page.getByRole('button', { name: /save & next/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /skip/i })).toBeVisible()
       await expect(page.getByRole('button', { name: /^done$/i })).toBeVisible()
     })
 
-    test('Scan Another resets state', async ({ page }) => {
+    test('Back from review returns to upload', async ({ page }) => {
       await page.getByRole('tab', { name: /receipt/i }).click()
       const receiptPath = path.join(__dirname, 'fixtures', 'receipt-sample.png')
       await page.locator('input[type="file"][accept="image/*"]').setInputFiles(receiptPath)
-      await page.getByRole('button', { name: /scan receipt/i }).click()
-      await expect(page.getByText(/products imported successfully/)).toBeVisible({
+      await page.getByRole('button', { name: /parse & review/i }).click()
+      await expect(page.getByText(/review each product/i)).toBeVisible({
         timeout: 15000,
       })
 
-      await page.getByRole('button', { name: /scan another/i }).click()
+      await page.getByTestId('review-back').click()
       await expect(page.getByText(/tap to upload receipt photo/i)).toBeVisible()
     })
   })
@@ -204,7 +187,7 @@ test.describe('Add Product Page', () => {
       // Forward email comes from API (GMAIL_IMPERSONATE_EMAIL) or fallback
       await expect(page.locator('code').filter({ hasText: /@/ })).toBeVisible()
       await expect(page.getByPlaceholder(/paste the raw email/i)).toBeVisible()
-      await expect(page.getByRole('button', { name: /parse & import/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /parse & review/i })).toBeVisible()
     })
 
     test('copy button exists and is clickable', async ({ page }) => {
@@ -215,21 +198,21 @@ test.describe('Add Product Page', () => {
       // Clipboard API may not work in headless; button click is sufficient to verify UX
     })
 
-    test('paste and import shows success', async ({ page }) => {
+    test('paste and parse shows review form', async ({ page }) => {
       await page.getByRole('tab', { name: /email/i }).click()
 
       const emailPath = path.join(__dirname, 'fixtures', 'sample-order-email.txt')
       const emailContent = await readFile(emailPath, 'utf-8')
       await page.getByPlaceholder(/paste the raw email/i).fill(emailContent)
 
-      await page.getByRole('button', { name: /parse & import/i }).click()
+      await page.getByRole('button', { name: /parse & review/i }).click()
 
-      await expect(
-        page.getByText(/products imported successfully/, { exact: false })
-      ).toBeVisible({ timeout: 15000 })
-
-      await expect(page.getByText('Milk 2%')).toBeVisible()
-      await expect(page.getByRole('button', { name: /import another/i })).toBeVisible()
+      await expect(page.getByText(/review each product/i)).toBeVisible({
+        timeout: 15000,
+      })
+      await page.getByRole('button', { name: /create new/i }).click()
+      await expect(page.locator('input#review-name')).toHaveValue(/.+/)
+      await expect(page.getByRole('button', { name: /save & next/i })).toBeVisible()
     })
   })
 
@@ -237,21 +220,14 @@ test.describe('Add Product Page', () => {
     test('shows camera or manual entry', async ({ page }) => {
       await page.getByRole('tab', { name: /barcode/i }).click()
 
-      // Either camera UI or "not supported" message
-      const hasCamera = await page.getByRole('button', { name: /start camera/i }).isVisible()
-      const hasNotSupported = await page
-        .getByText(/not supported in this browser/i)
-        .isVisible()
-      const hasManualEntry = await page.getByPlaceholder(/e\.g\. 4006381333931/i).isVisible()
-
-      expect(hasCamera || hasNotSupported).toBeTruthy()
-      expect(hasManualEntry).toBeTruthy()
+      // html5-qrcode works on all browsers — camera button is always shown
+      await expect(page.getByRole('button', { name: /start camera/i })).toBeVisible()
+      await expect(page.getByPlaceholder(/e\.g\. 4006381333931/i)).toBeVisible()
       await expect(page.getByRole('button', { name: /look up/i })).toBeVisible()
     })
 
-    test('manual barcode lookup pre-fills manual form', async ({ page }) => {
-      // Mock Open Food Facts for deterministic test (no external API)
-      await page.route('**/api/v2/product/*.json', async (route) => {
+    test('manual barcode lookup shows review form (same as receipt/email)', async ({ page }) => {
+      await page.route('**/openfoodfacts.org/**', async (route) => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -269,14 +245,11 @@ test.describe('Add Product Page', () => {
       await page.getByPlaceholder(/e\.g\. 4006381333931/i).fill('3017620422003')
       await page.getByRole('button', { name: /look up/i }).click()
 
-      // After lookup, switches to manual tab with pre-filled data
-      await expect(page.getByRole('tab', { name: /manual/i })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      await expect(page.getByPlaceholder(/e\.g\. Oat Milk/i)).toHaveValue(
-        /E2E Test Product|3017620422003/
-      )
+      await expect(page.getByText(/review each product/i)).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText(/E2E Test Product/)).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: /create new|save & next|skip|done/i })
+      ).toBeVisible()
     })
   })
 
@@ -289,14 +262,15 @@ test.describe('Add Product Page', () => {
     }
   })
 
-  test('Done button after import navigates to /products', async ({ page }) => {
+  test('Done button after parse navigates to /products', async ({ page }) => {
     await page.getByRole('tab', { name: /receipt/i }).click()
     const receiptPath = path.join(__dirname, 'fixtures', 'receipt-sample.png')
     await page.locator('input[type="file"][accept="image/*"]').setInputFiles(receiptPath)
-    await page.getByRole('button', { name: /scan receipt/i }).click()
-    await expect(page.getByText(/products imported successfully/)).toBeVisible({
+    await page.getByRole('button', { name: /parse & review/i }).click()
+    await expect(page.getByText(/review each product/i)).toBeVisible({
       timeout: 15000,
     })
+    await page.getByRole('button', { name: /create new/i }).click()
     await page.getByRole('button', { name: /^done$/i }).click()
     await page.waitForURL(/\/products/, { timeout: 5000 })
     await expect(page).toHaveURL(/\/products/)

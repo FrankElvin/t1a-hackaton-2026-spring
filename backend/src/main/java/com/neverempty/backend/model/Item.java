@@ -41,7 +41,15 @@ public class Item {
 
     private ConsumerCategory consumerCategory;
 
-    private Double monthlyConsumptionRate;
+    private Double daysToRestock;
+
+    private Double usagePerDay;
+
+    private Boolean autoCalc;
+
+    private String lastBoughtDate;
+
+    private Double standardPurchaseQuantity;
 
     @Builder.Default
     @Field("notified_run_out")

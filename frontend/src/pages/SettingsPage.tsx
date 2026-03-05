@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Minus, Plus, Trash2 } from 'lucide-react'
+import { Minus, Plus, Trash2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
 import keycloak from '@/lib/keycloak'
@@ -140,6 +141,9 @@ export default function SettingsPage() {
     setAddingPet(false)
   }
 
+  // ── How to ───────────────────────────────────────────────────────────────
+  const [openGuide, setOpenGuide] = useState<number | null>(null)
+
   // ── Profile ──────────────────────────────────────────────────────────────
   function openKeycloakAccount() {
     if (MOCK_AUTH) return
@@ -190,6 +194,102 @@ export default function SettingsPage() {
           Sign out
         </button>
       </div>
+
+      {/* ── How to ── */}
+      {(() => {
+        const guides: { title: string; steps: string[] }[] = [
+          {
+            title: 'Track a product I buy regularly',
+            steps: [
+              'Go to Products → tap Add (+).',
+              'Enter name, quantity, and unit.',
+              'Set Days to restock — how many days until you need to buy it again.',
+              'The app will forecast depletion and flag it on the Dashboard when it\'s running low.',
+            ],
+          },
+          {
+            title: 'Get smarter consumption estimates',
+            steps: [
+              'Open a product and set Days to restock.',
+              'Turn on the "Adapt to real usage" toggle.',
+              'Each time you mark the product as bought or finished, the app measures the actual time between events and refines its estimate automatically.',
+            ],
+          },
+          {
+            title: 'Record a shopping trip',
+            steps: [
+              'On the Products page tap Select, choose items, then tap Mark as bought.',
+              'On mobile you can also swipe right on a single item.',
+              'Pick the purchase date and confirm — the app resets the forecast.',
+            ],
+          },
+          {
+            title: 'Mark a product as finished',
+            steps: [
+              'Tap the ✓ icon next to a product on the Products page.',
+              'Pick the date it ran out and confirm.',
+              'If "Adapt to real usage" is on, the app recalculates how fast you consume it.',
+            ],
+          },
+          {
+            title: 'Organise products by store',
+            steps: [
+              'Edit a product and assign it to a store.',
+              'Go to the Stores tab and tap a store to see all its products.',
+              'Use "Record purchase" to mark all store items as bought in one go after a shopping trip.',
+            ],
+          },
+          {
+            title: 'Add products from a receipt or email',
+            steps: [
+              'Go to Add Product and choose "Scan receipt" or "Import from email".',
+              'The app uses AI to extract items and prefill the form.',
+              'Review the suggested values and save.',
+            ],
+          },
+        ]
+        return (
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">How to</h2>
+            </div>
+            <ul>
+              {guides.map((g, i) => {
+                const isOpen = openGuide === i
+                return (
+                  <li key={i} className={cn('border-b border-gray-100 last:border-0')}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenGuide(isOpen ? null : i)}
+                      className="w-full flex items-center justify-between px-4 py-3.5 text-left text-sm font-medium text-gray-800 hover:bg-gray-50 transition-colors"
+                    >
+                      <span>{g.title}</span>
+                      <ChevronDown
+                        className={cn(
+                          'w-4 h-4 text-gray-400 shrink-0 transition-transform',
+                          isOpen && 'rotate-180'
+                        )}
+                      />
+                    </button>
+                    {isOpen && (
+                      <ol className="px-4 pb-4 space-y-2 list-none">
+                        {g.steps.map((step, j) => (
+                          <li key={j} className="flex gap-3 text-sm text-gray-600">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold shrink-0 mt-0.5">
+                              {j + 1}
+                            </span>
+                            <span>{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )
+      })()}
 
       {/* ── Household ── */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">

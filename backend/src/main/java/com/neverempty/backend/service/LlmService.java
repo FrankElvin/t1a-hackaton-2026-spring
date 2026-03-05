@@ -94,6 +94,19 @@ public class LlmService {
             The "name" must match the input exactly. "runoutDays" must be a positive integer.
             """;
 
+    private static final String SUGGEST_MATCHES_PROMPT = """
+            You are a product matching assistant.
+            Given a product name (from a receipt or email) and a list of existing inventory item names,
+            return which existing items likely match. Consider:
+            - Same product in different languages (e.g. "Mleko" vs "Milk")
+            - Abbreviations vs full names
+            - Brand variations
+            Return ONLY a JSON array of objects: [{"name":"<exact existing item name>","score":0.0-1.0}, ...]
+            Order by score descending (best match first). Include only items with score >= 0.3.
+            Use "name" exactly as it appears in the existing list. "score" is confidence 0-1.
+            If no good matches, return [].
+            """;
+
     private static final String SUGGEST_CONSUMERS_PROMPT = """
             You are a household consumption advisor.
             Given a product name and a list of household member categories,
@@ -121,6 +134,30 @@ public class LlmService {
             - Personal care: ~30-60 days
             Scale estimates based on actual quantity and number of consumers.
             Return ONLY an integer (number of days). Nothing else.
+            """;
+
+    private static final String ESTIMATE_RUNOUT_WITH_HOUSEHOLD_PROMPT = """
+            You are a household consumption estimator.
+            Given a product (name, quantity, unit) and household composition, estimate how many DAYS until this product runs out.
+            Your answer must be DAYS, not quantity. Do NOT echo the quantity — estimate based on typical consumption rate.
+
+            IMPORTANT: Consider which household members actually USE this product.
+            - PARROT does NOT use toilet paper, paper towels, cleaning supplies, human food, personal care.
+            - CAT and DOG typically consume only pet food and pet-specific products.
+            - SMALL_ANIMAL (hamsters etc.) consume only their specific food.
+            - Only count humans (ADULT, CHILD) for toilet paper, milk, bread, soap, alcohol.
+            - Count pets only for PET_FOOD and pet-specific items.
+            Use common sense to estimate the effective number of consumers.
+
+            Reference consumption (DAYS until depletion, not quantity):
+            - Milk 1L, 2 adults: ~3-5 days
+            - Vodka/whiskey 1 bottle (0.7L): ~7-14 days per bottle (moderate); 21 bottles = ~150-300 days
+            - Toilet paper 12 rolls, 2 adults: ~14-21 days
+            - Bread 500g, 2 adults: ~3-4 days
+            - Eggs 10 pcs, family of 4: ~7-10 days
+            Scale by quantity: more units = more days, but not 1:1 — consumption rate matters.
+
+            Return ONLY an integer (days until product runs out). Nothing else.
             """;
 
     private final String apiKey;
@@ -189,6 +226,31 @@ public class LlmService {
         return parseJsonList(raw, new TypeReference<>() {});
     }
 
+    public record MatchCandidate(String name, double score) {}
+
+    public List<MatchCandidate> suggestMatches(String parsedProductName, List<String> existingItemNames) {
+        if (existingItemNames == null || existingItemNames.isEmpty()) {
+            return List.of();
+        }
+        String userContent = "Parsed product: %s\nExisting items: %s"
+                .formatted(parsedProductName, String.join(", ", existingItemNames));
+        try {
+            var raw = callLlm(SUGGEST_MATCHES_PROMPT, userContent);
+            var list = parseJsonList(raw, new TypeReference<List<Map<String, Object>>>() {});
+            return list.stream()
+                    .map(m -> new MatchCandidate(
+                            (String) m.get("name"),
+                            ((Number) m.getOrDefault("score", 0.5)).doubleValue()
+                    ))
+                    .filter(c -> c.name() != null && !c.name().isBlank())
+                    .limit(10)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("LLM suggest matches failed for '{}': {}", parsedProductName, e.getMessage());
+            return List.of();
+        }
+    }
+
     public int estimateRunoutDays(String name, double quantity, String category,
                                    List<String> consumers, LocalDate lastBought) {
         var content = """
@@ -203,6 +265,37 @@ public class LlmService {
             return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
             log.warn("LLM returned non-integer for runout estimation: '{}', defaulting to 7", raw);
+            return 7;
+        }
+    }
+
+    /**
+     * Estimate days to restock for a product given household composition.
+     * Uses prompt that considers which members actually consume the product
+     * (e.g. parrot does not use toilet paper).
+     */
+    public int estimateDaysToRestockWithHousehold(
+            String name, double quantity, String unit, String category, String consumerCategory,
+            String householdDescription, LocalDate lastBought) {
+        var content = """
+                Product: %s
+                Quantity: %s %s
+                Category: %s
+                Primary consumer type: %s
+                Household composition: %s
+                Last bought: %s
+                """.formatted(
+                name, quantity, unit,
+                category != null && !category.isBlank() ? category : "unknown",
+                consumerCategory != null && !consumerCategory.isBlank() ? consumerCategory : "not specified",
+                householdDescription != null && !householdDescription.isBlank() ? householdDescription : "unknown",
+                lastBought != null ? lastBought : "unknown");
+        var raw = callLlm(ESTIMATE_RUNOUT_WITH_HOUSEHOLD_PROMPT, content).trim();
+        try {
+            int days = Integer.parseInt(raw);
+            return Math.max(1, days);
+        } catch (NumberFormatException e) {
+            log.warn("LLM returned non-integer for days-to-restock: '{}', defaulting to 7", raw);
             return 7;
         }
     }

@@ -89,6 +89,7 @@ export default function DashboardPage() {
     queryFn: MOCK_AUTH
       ? () => Promise.resolve(mockDashboard)
       : () => api.get('/dashboard').then((r) => r.data),
+    staleTime: 0,
     refetchInterval: MOCK_AUTH ? false : 60_000,
   })
 

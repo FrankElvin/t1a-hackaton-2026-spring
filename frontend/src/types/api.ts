@@ -44,9 +44,11 @@ export interface Item {
   storeId?: string
   price?: number
   consumerCategory?: ConsumerCategory
-  monthlyConsumptionRate?: number
+  daysToRestock?: number
+  usagePerDay?: number
   autoCalc?: boolean
   lastBoughtDate?: string
+  standardPurchaseQuantity?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -59,9 +61,10 @@ export interface CreateItemRequest {
   storeId?: string
   price?: number
   consumerCategory?: ConsumerCategory
-  monthlyConsumptionRate?: number
+  daysToRestock?: number
   autoCalc?: boolean
   lastBoughtDate?: string
+  standardPurchaseQuantity?: number
 }
 
 export type UpdateItemRequest = CreateItemRequest
@@ -118,13 +121,46 @@ export interface ImportReceiptResponse {
   unrecognizedLines: string[]
 }
 
+export type ImportBatchSource = 'RECEIPT' | 'EMAIL' | 'BARCODE'
+
+export interface ParsedProductDto {
+  index: number
+  name: string
+  quantity: number
+  unit: string
+  priceAmount?: number
+  priceCurrency?: string
+  category?: ItemCategory
+  monthlyConsumptionRate?: number
+}
+
+export interface ImportBatchResponse {
+  id: string
+  source: ImportBatchSource
+  sourceMetadata?: string
+  storeId?: string
+  parsedProducts: ParsedProductDto[]
+  unrecognizedLines: string[]
+  createdAt?: string
+}
+
+export interface MatchSuggestion {
+  itemId: string
+  name: string
+  score: number
+}
+
+export interface AddQuantityRequest {
+  quantity: number
+}
+
 export interface MarkConsumedRequest {
   quantityConsumed?: number
   depletedAt?: string
 }
 
-export interface SetConsumptionRateRequest {
-  monthlyRate: number
+export interface MarkDepletedRequest {
+  depletedAt?: string
 }
 
 export interface NotificationSettings {

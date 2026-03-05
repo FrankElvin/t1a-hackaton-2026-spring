@@ -59,6 +59,11 @@ public class MongoConfig {
                 new Index().on("user_id", Sort.Direction.ASC).unique()
         );
 
+        // import_batch: index on user_id for listing
+        mongoTemplate.indexOps("import_batch").ensureIndex(
+                new Index().on("user_id", Sort.Direction.ASC)
+        );
+
         // product: compound index on owner + run_out_at.deadline (legacy)
         mongoTemplate.indexOps("product").ensureIndex(
                 new CompoundIndexDefinition(new Document()

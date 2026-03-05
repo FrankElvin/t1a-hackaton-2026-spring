@@ -1,7 +1,10 @@
 package com.neverempty.backend.service;
 
 import com.neverempty.backend.dto.ImportReceiptResponse;
+import com.neverempty.backend.dto.ParsedProductDto;
+import com.neverempty.backend.model.ImportBatch;
 import com.neverempty.backend.model.Item;
+import com.neverempty.backend.repository.ImportBatchRepository;
 import com.neverempty.backend.repository.ItemRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import com.neverempty.backend.model.enums.ItemCategory;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +27,7 @@ public class ImportService {
     private final OcrService ocrService;
     private final LlmService llmService;
     private final ItemRepository itemRepository;
+    private final ImportBatchRepository importBatchRepository;
 
     public ImportReceiptResponse importFromReceipt(String userId, byte[] image, String storeId) {
         return importFromReceipt(userId, image, storeId, msg -> {});
@@ -78,12 +83,14 @@ public class ImportService {
                 var cl = classifiedMap.get(parsed.name());
 
                 ItemCategory category = null;
-                Double monthlyConsumptionRate = null;
+                Double daysToRestock = null;
+                Double usagePerDay = null;
 
                 if (cl != null) {
                     category = mapCategory(cl.category());
                     if (cl.runoutDays() > 0) {
-                        monthlyConsumptionRate = parsed.quantity() * 30.0 / cl.runoutDays();
+                        daysToRestock = (double) cl.runoutDays();
+                        usagePerDay = parsed.quantity() / cl.runoutDays();
                     }
                     onProgress.accept("[" + idx + "/" + total + "] " + parsed.name()
                             + " → " + cl.category() + ", ~" + cl.runoutDays() + " days");
@@ -101,7 +108,8 @@ public class ImportService {
                         .storeId(storeId)
                         .price(parsed.priceAmount())
                         .category(category)
-                        .monthlyConsumptionRate(monthlyConsumptionRate)
+                        .daysToRestock(daysToRestock)
+                        .usagePerDay(usagePerDay)
                         .build());
             } catch (Exception e) {
                 log.warn("Failed to build item for '{}': {}", parsed.name(), e);
@@ -130,5 +138,93 @@ public class ImportService {
             case "beverages" -> ItemCategory.BEVERAGES;
             default -> ItemCategory.OTHER;
         };
+    }
+
+    /**
+     * Parse receipt and create ImportBatch (no items saved).
+     * User reviews products one-by-one via manual form.
+     */
+    public ImportBatch parseOnlyFromReceipt(String userId, byte[] image, String storeId, Consumer<String> onProgress) {
+        onProgress.accept("Extracting text from receipt via OCR...");
+        var ocrText = ocrService.extractText(image);
+        onProgress.accept("OCR complete. Sending to AI for parsing...");
+        var parsedProducts = llmService.parseReceipt(ocrText);
+        onProgress.accept("AI identified " + parsedProducts.size() + " products");
+        return buildImportBatch(userId, ImportBatch.Source.RECEIPT, null, storeId, parsedProducts, onProgress);
+    }
+
+    /**
+     * Parse email and create ImportBatch (no items saved).
+     */
+    public ImportBatch parseOnlyFromEmail(String userId, String rawEmail, Consumer<String> onProgress) {
+        onProgress.accept("Sending email content to AI for parsing...");
+        var parsedProducts = llmService.parseEmail(rawEmail);
+        onProgress.accept("AI identified " + parsedProducts.size() + " products");
+        return buildImportBatch(userId, ImportBatch.Source.EMAIL, null, null, parsedProducts, onProgress);
+    }
+
+    private ImportBatch buildImportBatch(String userId, ImportBatch.Source source, String sourceMetadata,
+                                         String storeId, List<LlmService.ParsedProduct> parsedProducts,
+                                         Consumer<String> onProgress) {
+        var unrecognizedLines = new ArrayList<String>();
+        int total = parsedProducts.size();
+
+        onProgress.accept("Classifying all " + total + " products...");
+        Map<String, LlmService.ClassifiedProduct> classifiedMap = Map.of();
+        try {
+            var classified = llmService.classifyAll(parsedProducts);
+            classifiedMap = classified.stream()
+                    .collect(Collectors.toMap(LlmService.ClassifiedProduct::name, c -> c, (a, b) -> a));
+            onProgress.accept("Classification complete for " + classified.size() + " products");
+        } catch (Exception e) {
+            log.warn("Batch classification failed", e);
+            onProgress.accept("Classification failed, products will have minimal metadata");
+        }
+
+        var parsedDtos = new ArrayList<ParsedProductDto>();
+        for (int i = 0; i < total; i++) {
+            var parsed = parsedProducts.get(i);
+            int idx = i + 1;
+            try {
+                var cl = classifiedMap.get(parsed.name());
+                ItemCategory category = null;
+                Double monthlyConsumptionRate = null;
+                if (cl != null) {
+                    category = mapCategory(cl.category());
+                    if (cl.runoutDays() > 0) {
+                        monthlyConsumptionRate = parsed.quantity() * 30.0 / cl.runoutDays();
+                    }
+                    onProgress.accept("[" + idx + "/" + total + "] " + parsed.name() + " → " + cl.category());
+                } else {
+                    onProgress.accept("[" + idx + "/" + total + "] " + parsed.name() + " → not classified");
+                }
+                String unit = (parsed.unit() != null && !parsed.unit().isBlank()) ? parsed.unit() : "pcs";
+                parsedDtos.add(new ParsedProductDto(
+                        idx,
+                        parsed.name(),
+                        parsed.quantity(),
+                        unit,
+                        parsed.priceAmount(),
+                        parsed.priceCurrency(),
+                        category,
+                        monthlyConsumptionRate
+                ));
+            } catch (Exception e) {
+                log.warn("Failed to build parsed product for '{}': {}", parsed.name(), e);
+                unrecognizedLines.add(parsed.name());
+            }
+        }
+
+        onProgress.accept("Import batch ready: " + parsedDtos.size() + " products to review");
+        var batch = ImportBatch.builder()
+                .userId(userId)
+                .source(source)
+                .sourceMetadata(sourceMetadata)
+                .storeId(storeId)
+                .parsedProducts(parsedDtos)
+                .unrecognizedLines(unrecognizedLines)
+                .createdAt(Instant.now())
+                .build();
+        return importBatchRepository.save(batch);
     }
 }

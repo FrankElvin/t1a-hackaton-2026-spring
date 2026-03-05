@@ -40,7 +40,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600">
             <ShoppingBasket className="w-5 h-5 text-white" />
           </div>
-          <span className="font-semibold text-gray-900">Household</span>
+          <span className="font-semibold text-gray-900">Never Empty</span>
         </div>
 
         {/* Nav items */}
@@ -102,11 +102,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 pb-24 lg:pb-6">{children}</main>
+        <main className="flex-1 p-4 lg:p-6 pb-28 lg:pb-6">{children}</main>
       </div>
 
       {/* Mobile bottom tab bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex items-center z-20">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex items-center z-20 pb-[env(safe-area-inset-bottom)]">
         {navItems.slice(0, 2).map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}

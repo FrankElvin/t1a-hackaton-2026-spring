@@ -19,6 +19,7 @@ public class ForecastService {
     public ForecastResponse getForecast(String userId, LocalDate calculationDate) {
         var items = itemRepository.findByUserId(userId);
         var forecasts = items.stream()
+                .filter(item -> item.getDaysToRestock() != null && item.getUsagePerDay() != null)
                 .map(item -> buildForecast(item, calculationDate))
                 .toList();
         return new ForecastResponse(calculationDate, forecasts);
@@ -26,28 +27,23 @@ public class ForecastService {
 
     public Optional<ItemForecast> getItemForecast(String userId, String itemId, LocalDate calculationDate) {
         return itemRepository.findByIdAndUserId(itemId, userId)
+                .filter(item -> item.getDaysToRestock() != null && item.getUsagePerDay() != null)
                 .map(item -> buildForecast(item, calculationDate));
     }
 
+    /**
+     * Builds a forecast for an item.
+     * daysToRestock is the live counter decremented daily by DailyUpdateScheduler.
+     * usagePerDay is the daily consumption rate.
+     */
     public ItemForecast buildForecast(Item item, LocalDate calculationDate) {
-        double monthlyRate = item.getMonthlyConsumptionRate() != null
-                ? item.getMonthlyConsumptionRate()
-                : 1.0;
+        int daysUntilDepletion = item.getDaysToRestock() != null
+                ? (int) Math.round(item.getDaysToRestock()) : 0;
+        double dailyConsumption = item.getUsagePerDay() != null ? item.getUsagePerDay() : 0;
 
-        double dailyConsumption = monthlyRate / 30.0;
+        LocalDate estimatedDepletionDate = calculationDate.plusDays(daysUntilDepletion);
 
-        int daysUntilDepletion;
-        if (dailyConsumption <= 0) {
-            daysUntilDepletion = Integer.MAX_VALUE;
-        } else {
-            daysUntilDepletion = (int) Math.ceil(item.getCurrentQuantity() / dailyConsumption);
-        }
-
-        LocalDate estimatedDepletionDate = daysUntilDepletion == Integer.MAX_VALUE
-                ? calculationDate.plusYears(100)
-                : calculationDate.plusDays(daysUntilDepletion);
-
-        double percentRemaining = Math.min(100.0, item.getCurrentQuantity() / 100.0 * 100.0);
+        double percentRemaining = Math.min(100.0, daysUntilDepletion / 30.0 * 100.0);
 
         return new ItemForecast(
                 item.getId(),

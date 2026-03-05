@@ -35,5 +35,33 @@
     margin: 0;
     min-height: 100vh;
     font-family: system-ui, -apple-system, sans-serif;
+    /* Prevent iOS rubber-band overscroll on body */
+    overscroll-behavior: none;
   }
+}
+
+@layer utilities {
+  /* Hide scrollbar while preserving scroll functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* html5-qrcode overrides */
+#barcode-reader {
+  border: none !important;
+}
+#barcode-reader video {
+  border-radius: 0.75rem;
+}
+#barcode-reader img[alt="Info icon"] {
+  display: none !important;
+}
+/* Hide the built-in file scan / permission UI */
+#barcode-reader > div:last-child {
+  display: none !important;
 }
