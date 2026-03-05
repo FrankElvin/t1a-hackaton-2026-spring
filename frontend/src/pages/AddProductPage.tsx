@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/axios'
@@ -8,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { mockStores } from '@/lib/mockData'
-import type { ItemCategory, ConsumerCategory, Item, CreateItemRequest, ImportReceiptResponse, Store } from '@/types/api'
+import type { ConsumerCategory, Item, CreateItemRequest, ImportReceiptResponse, Store } from '@/types/api'
 
 const MOCK_AUTH = import.meta.env.VITE_MOCK_AUTH === 'true'
 
@@ -20,12 +19,11 @@ interface FormState {
   unit: string
   lastBoughtDate: string
   storeId: string
-  category: ItemCategory | ''
   consumerCategory: ConsumerCategory | ''
   price: string
-  monthlyConsumptionRate: string
+  daysToRestock: string
   autoCalc: boolean
-  forecasting: boolean
+  standardPurchaseQuantity: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -34,25 +32,15 @@ const EMPTY_FORM: FormState = {
   unit: 'pcs',
   lastBoughtDate: new Date().toISOString().split('T')[0],
   storeId: '',
-  category: '',
   consumerCategory: '',
   price: '',
-  monthlyConsumptionRate: '',
-  autoCalc: false,
-  forecasting: false,
+  daysToRestock: '',
+  autoCalc: true,
+  standardPurchaseQuantity: '',
 }
 
 const UNIT_PRESETS = ['pcs', 'kg', 'g', 'L', 'ml', 'pack', 'box', 'bottle', 'bag', 'roll']
 
-const ITEM_CATEGORY_LABELS: Record<ItemCategory, string> = {
-  FOOD: 'Food',
-  BEVERAGES: 'Beverages',
-  CLEANING: 'Cleaning',
-  PERSONAL_CARE: 'Personal Care',
-  PET_FOOD: 'Pet Food',
-  MEDICINE: 'Medicine',
-  OTHER: 'Other',
-}
 
 const CONSUMER_CATEGORY_LABELS: Record<ConsumerCategory, string> = {
   ADULT: 'Adults',
@@ -207,6 +195,7 @@ export default function AddProductPage() {
   const queryClient = useQueryClient()
   const [method, setMethod] = useState<Method>('manual')
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const stdQtyEditedRef = useRef(false)
   const [prefillBanner, setPrefillBanner] = useState<string | null>(null)
   const [barcodeProductPreview, setBarcodeProductPreview] = useState<BarcodeProductPreview | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -380,13 +369,13 @@ export default function AddProductPage() {
       unit: form.unit.trim(),
       ...(form.lastBoughtDate ? { lastBoughtDate: form.lastBoughtDate } : {}),
       ...(form.storeId ? { storeId: form.storeId } : {}),
-      ...(form.category ? { category: form.category as ItemCategory } : {}),
       ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
       ...(form.price ? { price: parseFloat(form.price) } : {}),
-      ...(form.monthlyConsumptionRate
-        ? { monthlyConsumptionRate: parseFloat(form.monthlyConsumptionRate) }
+      ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
+      autoCalc: form.autoCalc,
+      ...(form.standardPurchaseQuantity
+        ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
         : {}),
-      autoCalc: form.monthlyConsumptionRate ? form.autoCalc : true,
     }
     saveMutation.mutate(req)
   }
@@ -594,7 +583,14 @@ export default function AddProductPage() {
                 min="0"
                 step="any"
                 value={form.currentQuantity}
-                onChange={(e) => setForm((p) => ({ ...p, currentQuantity: e.target.value }))}
+                onChange={(e) => {
+                  const qty = e.target.value
+                  setForm((p) => ({
+                    ...p,
+                    currentQuantity: qty,
+                    ...(!stdQtyEditedRef.current ? { standardPurchaseQuantity: qty } : {}),
+                  }))
+                }}
                 required
               />
             </div>
@@ -658,28 +654,29 @@ export default function AddProductPage() {
             </select>
           </div>
 
-          {/* Monthly usage + forecast toggle */}
+          {/* Days to restock */}
           <div className="space-y-1.5">
-            <Label htmlFor="rate">Monthly usage</Label>
+            <Label htmlFor="daysToRestock">Days to restock</Label>
             <Input
-              id="rate"
+              id="daysToRestock"
               type="number"
               min="0"
-              step="any"
-              value={form.monthlyConsumptionRate}
-              onChange={(e) => setForm((p) => ({ ...p, monthlyConsumptionRate: e.target.value }))}
-              placeholder="e.g. 4"
+              step="1"
+              value={form.daysToRestock}
+              onChange={(e) => setForm((p) => ({ ...p, daysToRestock: e.target.value }))}
+              placeholder="e.g. 7"
             />
+            <p className="text-xs text-gray-400">How many days until you need to buy this again</p>
           </div>
 
-          {form.monthlyConsumptionRate ? (
+          {form.daysToRestock && (
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
                 <p className="text-xs text-gray-400">
                   {form.autoCalc
-                    ? 'Starts with this rate, adjusts based on actual purchases'
-                    : 'Always uses exactly this rate for forecasting'}
+                    ? 'Recalculates rate from actual buy/deplete events'
+                    : 'Always uses this fixed estimate'}
                 </p>
               </div>
               <button
@@ -692,33 +689,6 @@ export default function AddProductPage() {
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                     form.autoCalc ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                  Enable forecasting
-                </p>
-                <p className="text-xs text-gray-400">
-                  {form.forecasting
-                    ? 'AI will estimate your consumption rate'
-                    : 'No forecast — notifications disabled, updates after real usage'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setForm((p) => ({ ...p, forecasting: !p.forecasting }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                  form.forecasting ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                    form.forecasting ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>
@@ -737,7 +707,6 @@ export default function AddProductPage() {
                 {!showAdditional && (
                   <span className="text-xs text-gray-400 font-normal">
                     {[
-                      form.category ? ITEM_CATEGORY_LABELS[form.category as ItemCategory] : null,
                       form.consumerCategory
                         ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
                         : null,
@@ -753,27 +722,6 @@ export default function AddProductPage() {
 
             {showAdditional && (
               <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="category">Category</Label>
-                  <select
-                    id="category"
-                    value={form.category}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, category: e.target.value as ItemCategory | '' }))
-                    }
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">— Not specified —</option>
-                    {(Object.entries(ITEM_CATEGORY_LABELS) as [ItemCategory, string][]).map(
-                      ([v, l]) => (
-                        <option key={v} value={v}>
-                          {l}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-
                 <div className="space-y-1.5">
                   <Label htmlFor="consumer">Consumed by</Label>
                   <select
@@ -796,6 +744,27 @@ export default function AddProductPage() {
                       )
                     )}
                   </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="stdQty">Standard purchase quantity</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="stdQty"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={form.standardPurchaseQuantity}
+                      onChange={(e) => {
+                        stdQtyEditedRef.current = true
+                        setForm((p) => ({ ...p, standardPurchaseQuantity: e.target.value }))
+                      }}
+                      placeholder={form.currentQuantity || '1'}
+                      className="flex-1"
+                    />
+                    <span className="text-sm text-gray-500 shrink-0">{form.unit}</span>
+                  </div>
+                  <p className="text-xs text-gray-400">How much you typically buy in one trip</p>
                 </div>
 
                 <div className="space-y-1.5">
@@ -907,11 +876,6 @@ export default function AddProductPage() {
                   >
                     <div>
                       <span className="font-medium text-gray-800">{item.name}</span>
-                      {item.category && (
-                        <span className="ml-2 text-xs text-gray-400">
-                          {ITEM_CATEGORY_LABELS[item.category] ?? item.category}
-                        </span>
-                      )}
                     </div>
                     <span className="text-sm text-gray-500">
                       {item.currentQuantity} {item.unit}
@@ -1047,11 +1011,6 @@ export default function AddProductPage() {
                   >
                     <div>
                       <span className="font-medium text-gray-800">{item.name}</span>
-                      {item.category && (
-                        <span className="ml-2 text-xs text-gray-400">
-                          {ITEM_CATEGORY_LABELS[item.category] ?? item.category}
-                        </span>
-                      )}
                     </div>
                     <span className="text-sm text-gray-500">
                       {item.currentQuantity} {item.unit}

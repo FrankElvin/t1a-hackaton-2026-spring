@@ -157,8 +157,7 @@ export default function StoreDetailPage() {
       return Promise.all(
         itemList.map((item) =>
           api
-            .post<Item>(`/items/${item.id}/consumed`, {
-              quantityConsumed: item.currentQuantity,
+            .post<Item>(`/items/${item.id}/depleted`, {
               depletedAt: boughtDate || new Date().toISOString().split('T')[0],
             })
             .then((r) => r.data)

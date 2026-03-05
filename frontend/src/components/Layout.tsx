@@ -102,11 +102,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 pb-24 lg:pb-6">{children}</main>
+        <main className="flex-1 p-4 lg:p-6 pb-28 lg:pb-6">{children}</main>
       </div>
 
       {/* Mobile bottom tab bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex items-center z-20">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex items-center z-20 pb-[env(safe-area-inset-bottom)]">
         {navItems.slice(0, 2).map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}

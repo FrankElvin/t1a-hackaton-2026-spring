@@ -3,7 +3,6 @@ package com.neverempty.backend.controller;
 import com.neverempty.backend.dto.CreateItemRequest;
 import com.neverempty.backend.dto.MarkAsBoughtRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
-import com.neverempty.backend.dto.SetConsumptionRateRequest;
 import com.neverempty.backend.model.Item;
 import com.neverempty.backend.model.enums.ItemCategory;
 import com.neverempty.backend.service.ItemService;
@@ -39,7 +38,8 @@ public class ItemController {
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateItemRequest request) {
         var userId = jwt.getSubject();
-        var created = itemService.createItem(userId, request);
+        var calcDate = settingsService.getCalculationDate(userId);
+        var created = itemService.createItem(userId, request, calcDate);
         return ResponseEntity.status(201).body(created);
     }
 
@@ -90,24 +90,14 @@ public class ItemController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PostMapping("/items/{itemId}/consumed")
-    public ResponseEntity<Item> markConsumed(
+    @PostMapping("/items/{itemId}/depleted")
+    public ResponseEntity<Item> markDepleted(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String itemId,
-            @Valid @RequestBody MarkConsumedRequest request) {
+            @RequestBody(required = false) MarkConsumedRequest request) {
         var userId = jwt.getSubject();
-        return itemService.markConsumed(userId, itemId, request)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @PutMapping("/items/{itemId}/consumption-rate")
-    public ResponseEntity<Item> setConsumptionRate(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable String itemId,
-            @Valid @RequestBody SetConsumptionRateRequest request) {
-        var userId = jwt.getSubject();
-        return itemService.setConsumptionRate(userId, itemId, request.monthlyRate())
+        var req = request != null ? request : new MarkConsumedRequest(null);
+        return itemService.markDepleted(userId, itemId, req)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

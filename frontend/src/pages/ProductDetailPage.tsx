@@ -1,27 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Trash2, Sparkles } from 'lucide-react'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 import api from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { mockItems, mockStores } from '@/lib/mockData'
-import type { Item, UpdateItemRequest, ItemCategory, ConsumerCategory, Store } from '@/types/api'
+import type { Item, UpdateItemRequest, ConsumerCategory, Store } from '@/types/api'
 
 const MOCK_AUTH = import.meta.env.VITE_MOCK_AUTH === 'true'
 
-const UNIT_PRESETS = ['pcs', 'kg', 'g', 'L', 'ml', 'pack', 'box', 'bottle', 'bag', 'roll']
 
-const ITEM_CATEGORY_LABELS: Record<ItemCategory, string> = {
-  FOOD: 'Food',
-  BEVERAGES: 'Beverages',
-  CLEANING: 'Cleaning',
-  PERSONAL_CARE: 'Personal Care',
-  PET_FOOD: 'Pet Food',
-  MEDICINE: 'Medicine',
-  OTHER: 'Other',
-}
 
 const CONSUMER_CATEGORY_LABELS: Record<ConsumerCategory, string> = {
   ADULT: 'Adults',
@@ -38,28 +28,25 @@ interface FormState {
   unit: string
   lastBoughtDate: string
   storeId: string
-  category: ItemCategory | ''
   consumerCategory: ConsumerCategory | ''
   price: string
-  monthlyConsumptionRate: string
+  daysToRestock: string
   autoCalc: boolean
-  forecasting: boolean
+  standardPurchaseQuantity: string
 }
 
 function itemToForm(item: Item): FormState {
-  const hasRate = item.monthlyConsumptionRate != null
   return {
     name: item.name,
     currentQuantity: String(item.currentQuantity),
     unit: item.unit,
     lastBoughtDate: item.lastBoughtDate ?? '',
     storeId: item.storeId ?? '',
-    category: item.category ?? '',
     consumerCategory: item.consumerCategory ?? '',
     price: item.price != null ? String(item.price) : '',
-    monthlyConsumptionRate: hasRate ? String(item.monthlyConsumptionRate) : '',
-    autoCalc: item.autoCalc ?? false,
-    forecasting: false,
+    daysToRestock: item.daysToRestock != null ? String(Math.round(item.daysToRestock)) : '',
+    autoCalc: item.autoCalc ?? true,
+    standardPurchaseQuantity: item.standardPurchaseQuantity != null ? String(item.standardPurchaseQuantity) : '',
   }
 }
 
@@ -149,13 +136,13 @@ export default function ProductDetailPage() {
       unit: form.unit.trim(),
       ...(form.lastBoughtDate ? { lastBoughtDate: form.lastBoughtDate } : {}),
       ...(form.storeId ? { storeId: form.storeId } : {}),
-      ...(form.category ? { category: form.category as ItemCategory } : {}),
       ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
       ...(form.price ? { price: parseFloat(form.price) } : {}),
-      ...(form.monthlyConsumptionRate
-        ? { monthlyConsumptionRate: parseFloat(form.monthlyConsumptionRate) }
+      ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
+      autoCalc: form.autoCalc,
+      ...(form.standardPurchaseQuantity
+        ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
         : {}),
-      autoCalc: form.monthlyConsumptionRate ? form.autoCalc : true,
     }
     saveMutation.mutate(req)
   }
@@ -214,33 +201,15 @@ export default function ProductDetailPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="unit">Unit <span className="text-red-500">*</span></Label>
-            <Input
+            <Label htmlFor="unit">Unit</Label>
+            <div
               id="unit"
-              value={form.unit}
-              onChange={(e) => setForm((p) => p && ({ ...p, unit: e.target.value }))}
-              placeholder="pcs, kg, L…"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Unit presets */}
-        <div className="flex flex-wrap gap-1.5">
-          {UNIT_PRESETS.map((u) => (
-            <button
-              key={u}
-              type="button"
-              onClick={() => setForm((p) => p && ({ ...p, unit: u }))}
-              className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${
-                form.unit === u
-                  ? 'bg-blue-500 text-white border-blue-500'
-                  : 'border-gray-300 text-gray-600 hover:border-gray-400'
-              }`}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-700"
             >
-              {u}
-            </button>
-          ))}
+              <span className="flex-1">{form.unit}</span>
+              <span className="text-xs text-gray-400">locked</span>
+            </div>
+          </div>
         </div>
 
         {/* Last bought */}
@@ -273,22 +242,6 @@ export default function ProductDetailPage() {
 
         <div className="border-t border-gray-100" />
 
-        {/* Category */}
-        <div className="space-y-1.5">
-          <Label htmlFor="category">Category</Label>
-          <select
-            id="category"
-            value={form.category}
-            onChange={(e) => setForm((p) => p && ({ ...p, category: e.target.value as ItemCategory | '' }))}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">— Not specified —</option>
-            {(Object.entries(ITEM_CATEGORY_LABELS) as [ItemCategory, string][]).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-        </div>
-
         {/* Consumed by */}
         <div className="space-y-1.5">
           <Label htmlFor="consumer">Consumed by</Label>
@@ -319,28 +272,48 @@ export default function ProductDetailPage() {
           />
         </div>
 
-        {/* Monthly usage */}
+        {/* Standard purchase quantity */}
         <div className="space-y-1.5">
-          <Label htmlFor="rate">Monthly usage</Label>
-          <Input
-            id="rate"
-            type="number"
-            min="0"
-            step="any"
-            value={form.monthlyConsumptionRate}
-            onChange={(e) => setForm((p) => p && ({ ...p, monthlyConsumptionRate: e.target.value }))}
-            placeholder="e.g. 4"
-          />
+          <Label htmlFor="stdQty">Standard purchase quantity</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="stdQty"
+              type="number"
+              min="0"
+              step="any"
+              value={form.standardPurchaseQuantity}
+              onChange={(e) => setForm((p) => p && ({ ...p, standardPurchaseQuantity: e.target.value }))}
+              placeholder={form.currentQuantity || '1'}
+              className="flex-1"
+            />
+            <span className="text-sm text-gray-500 shrink-0">{form.unit}</span>
+          </div>
+          <p className="text-xs text-gray-400">How much you typically buy in one trip</p>
         </div>
 
-        {form.monthlyConsumptionRate ? (
+        {/* Days to restock */}
+        <div className="space-y-1.5">
+          <Label htmlFor="daysToRestock">Days to restock</Label>
+          <Input
+            id="daysToRestock"
+            type="number"
+            min="0"
+            step="1"
+            value={form.daysToRestock}
+            onChange={(e) => setForm((p) => p && ({ ...p, daysToRestock: e.target.value }))}
+            placeholder="e.g. 7"
+          />
+          <p className="text-xs text-gray-400">How many days until you need to buy this again</p>
+        </div>
+
+        {form.daysToRestock && (
           <div className="flex items-center justify-between py-1">
             <div>
               <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
               <p className="text-xs text-gray-400">
                 {form.autoCalc
-                  ? 'Starts with this rate, adjusts based on actual purchases'
-                  : 'Always uses exactly this rate for forecasting'}
+                  ? 'Recalculates rate from actual buy/deplete events'
+                  : 'Always uses this fixed estimate'}
               </p>
             </div>
             <button
@@ -353,33 +326,6 @@ export default function ProductDetailPage() {
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   form.autoCalc ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between py-1">
-            <div>
-              <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                Enable forecasting
-              </p>
-              <p className="text-xs text-gray-400">
-                {form.forecasting
-                  ? 'AI will estimate your consumption rate'
-                  : 'No forecast — notifications disabled, updates after real usage'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setForm((p) => p && ({ ...p, forecasting: !p.forecasting }))}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                form.forecasting ? 'bg-blue-600' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  form.forecasting ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>

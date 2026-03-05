@@ -44,9 +44,11 @@ export interface Item {
   storeId?: string
   price?: number
   consumerCategory?: ConsumerCategory
-  monthlyConsumptionRate?: number
+  daysToRestock?: number
+  usagePerDay?: number
   autoCalc?: boolean
   lastBoughtDate?: string
+  standardPurchaseQuantity?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -59,9 +61,10 @@ export interface CreateItemRequest {
   storeId?: string
   price?: number
   consumerCategory?: ConsumerCategory
-  monthlyConsumptionRate?: number
+  daysToRestock?: number
   autoCalc?: boolean
   lastBoughtDate?: string
+  standardPurchaseQuantity?: number
 }
 
 export type UpdateItemRequest = CreateItemRequest
@@ -118,13 +121,8 @@ export interface ImportReceiptResponse {
   unrecognizedLines: string[]
 }
 
-export interface MarkConsumedRequest {
-  quantityConsumed?: number
+export interface MarkDepletedRequest {
   depletedAt?: string
-}
-
-export interface SetConsumptionRateRequest {
-  monthlyRate: number
 }
 
 export interface NotificationSettings {

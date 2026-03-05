@@ -7,24 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { mockItems, mockForecast, mockStores } from '@/lib/mockData'
-import type { Item, ItemCategory, ItemForecast, ForecastResponse, Store } from '@/types/api'
+import type { Item, ItemForecast, ForecastResponse, Store } from '@/types/api'
 
 const MOCK_AUTH = import.meta.env.VITE_MOCK_AUTH === 'true'
 const PAGE_SIZE = 20
 
 type EnrichedItem = Item & { forecast?: ItemForecast }
 
-const CATEGORY_LABELS: Record<ItemCategory, string> = {
-  FOOD: 'Food',
-  BEVERAGES: 'Beverages',
-  CLEANING: 'Cleaning',
-  PERSONAL_CARE: 'Personal Care',
-  PET_FOOD: 'Pet Food',
-  MEDICINE: 'Medicine',
-  OTHER: 'Other',
-}
-
-const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as ItemCategory[]
 
 function depletionColor(days?: number) {
   if (days === undefined) return 'text-gray-400'
@@ -202,11 +191,6 @@ function ProductCard({
                 <p className="font-semibold text-gray-900 truncate">{item.name}</p>
                 <p className="text-sm text-gray-500 mt-0.5">
                   {item.currentQuantity} {item.unit}
-                  {item.category && (
-                    <span className="ml-2 text-xs text-gray-400">
-                      · {CATEGORY_LABELS[item.category]}
-                    </span>
-                  )}
                   {storeName && (
                     <span className="ml-2 text-xs text-blue-500">· {storeName}</span>
                   )}
@@ -272,7 +256,6 @@ export default function ProductsPage() {
   const queryClient = useQueryClient()
 
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<ItemCategory | null>(null)
   const [sortAsc, setSortAsc] = useState(true)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
@@ -299,13 +282,10 @@ export default function ProductsPage() {
   )
 
   const { data: items = [], isLoading: itemsLoading } = useQuery<Item[]>({
-    queryKey: ['items', categoryFilter],
+    queryKey: ['items'],
     queryFn: MOCK_AUTH
-      ? () => Promise.resolve(mockItems.filter((i) => !categoryFilter || i.category === categoryFilter))
-      : () =>
-          api
-            .get<Item[]>('/items', { params: categoryFilter ? { category: categoryFilter } : {} })
-            .then((r) => r.data),
+      ? () => Promise.resolve(mockItems)
+      : () => api.get<Item[]>('/items').then((r) => r.data),
   })
 
   const { data: forecast } = useQuery<ForecastResponse>({
@@ -346,7 +326,7 @@ export default function ProductsPage() {
       return api.delete(`/items/${id}`).then(() => {})
     },
     onSuccess: (_, id) => {
-      queryClient.setQueryData<Item[]>(['items', categoryFilter], (prev) =>
+      queryClient.setQueryData<Item[]>(['items'], (prev) =>
         prev?.filter((i) => i.id !== id) ?? []
       )
       queryClient.setQueryData<ForecastResponse>(['forecast'], (prev) =>
@@ -366,7 +346,7 @@ export default function ProductsPage() {
       )
     },
     onSuccess: (updatedItems) => {
-      queryClient.setQueryData<Item[]>(['items', categoryFilter], (prev) =>
+      queryClient.setQueryData<Item[]>(['items'], (prev) =>
         prev?.map((i) => updatedItems.find((u) => u.id === i.id) ?? i) ?? []
       )
       queryClient.invalidateQueries({ queryKey: ['forecast'] })
@@ -397,8 +377,7 @@ export default function ProductsPage() {
       return Promise.all(
         items.map((item) =>
           api
-            .post<Item>(`/items/${item.id}/consumed`, {
-              quantityConsumed: item.currentQuantity,
+            .post<Item>(`/items/${item.id}/depleted`, {
               depletedAt: date,
             })
             .then((r) => r.data)
@@ -406,7 +385,7 @@ export default function ProductsPage() {
       )
     },
     onSuccess: (updatedItems) => {
-      queryClient.setQueryData<Item[]>(['items', categoryFilter], (prev) =>
+      queryClient.setQueryData<Item[]>(['items'], (prev) =>
         prev?.map((i) => updatedItems.find((u) => u.id === i.id) ?? i) ?? []
       )
       queryClient.invalidateQueries({ queryKey: ['forecast'] })
@@ -501,41 +480,6 @@ export default function ProductsPage() {
         </Button>
       </div>
 
-      {/* Category filter chips */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        <button
-          onClick={() => {
-            setCategoryFilter(null)
-            setVisibleCount(PAGE_SIZE)
-          }}
-          className={cn(
-            'px-3 py-1 rounded-full text-xs font-medium border whitespace-nowrap transition-colors',
-            categoryFilter === null
-              ? 'bg-blue-500 text-white border-blue-500'
-              : 'border-gray-200 text-gray-600 hover:border-gray-300'
-          )}
-        >
-          All
-        </button>
-        {ALL_CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => {
-              setCategoryFilter(cat === categoryFilter ? null : cat)
-              setVisibleCount(PAGE_SIZE)
-            }}
-            className={cn(
-              'px-3 py-1 rounded-full text-xs font-medium border whitespace-nowrap transition-colors',
-              categoryFilter === cat
-                ? 'bg-blue-500 text-white border-blue-500'
-                : 'border-gray-200 text-gray-600 hover:border-gray-300'
-            )}
-          >
-            {CATEGORY_LABELS[cat]}
-          </button>
-        ))}
-      </div>
-
       {/* Mobile swipe hint */}
       <p className="text-xs text-gray-400 text-center sm:hidden">
         Swipe right to mark as bought · Swipe left to delete
@@ -551,9 +495,9 @@ export default function ProductsPage() {
       ) : visible.length === 0 ? (
         <div className="text-center py-16 space-y-3">
           <p className="text-gray-400 text-sm">
-            {search || categoryFilter ? 'No products match your filters.' : 'No products yet.'}
+            {search ? 'No products match your search.' : 'No products yet.'}
           </p>
-          {!search && !categoryFilter && (
+          {!search && (
             <Button onClick={() => navigate('/add-product')}>
               <Plus className="w-4 h-4" />
               Add your first product
@@ -594,7 +538,7 @@ export default function ProductsPage() {
       {!itemsLoading && visible.length > 0 && (
         <p className="text-xs text-gray-400 text-center pb-2">
           {sorted.length} product{sorted.length !== 1 ? 's' : ''}
-          {search || categoryFilter ? ' matching filters' : ' total'}
+          {search ? ' matching search' : ' total'}
         </p>
       )}
 

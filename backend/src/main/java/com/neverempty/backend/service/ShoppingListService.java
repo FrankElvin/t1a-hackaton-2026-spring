@@ -58,6 +58,7 @@ public class ShoppingListService {
         double totalCost = 0.0;
 
         for (var item : items) {
+            if (item.getUsagePerDay() == null || item.getDaysToRestock() == null) continue;
             var forecast = forecastService.buildForecast(item, calculationDate);
             var depletionDate = forecast.estimatedDepletionDate();
 

@@ -18,4 +18,6 @@ public interface ItemRepository extends MongoRepository<Item, String> {
     List<Item> findByUserIdAndCategory(String userId, ItemCategory category);
 
     List<Item> findByUserIdAndStoreId(String userId, String storeId);
+
+    List<Item> findByUsagePerDayNotNull();
 }
