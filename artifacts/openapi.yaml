@@ -171,8 +171,16 @@ components:
           format: double
           description: |
             Manual override for consumption rate (units per month).
-            If null, the app infers it from purchase history.
+            If null and autoCalc is true, the app infers it from purchase history.
           example: 8.0
+        autoCalc:
+          type: boolean
+          default: false
+          description: |
+            Controls how the consumption rate is determined over time.
+            - true + monthlyConsumptionRate set: use rate as initial value, then adjust based on real purchases
+            - false + monthlyConsumptionRate set: always use the manually entered rate, never adjust
+            - true + monthlyConsumptionRate null: infer rate from purchase history (no initial estimate)
         lastBoughtDate:
           type: string
           format: date
@@ -211,6 +219,9 @@ components:
         monthlyConsumptionRate:
           type: number
           format: double
+        autoCalc:
+          type: boolean
+          default: false
         lastBoughtDate:
           type: string
           format: date

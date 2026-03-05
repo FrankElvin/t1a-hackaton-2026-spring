@@ -19,10 +19,17 @@ const pageTitles: Record<string, string> = {
   '/settings': 'Settings',
 }
 
+function resolveTitle(pathname: string): string {
+  if (pageTitles[pathname]) return pageTitles[pathname]
+  if (/^\/products\/.+/.test(pathname)) return 'Product'
+  if (/^\/stores\/.+/.test(pathname)) return 'Store'
+  return 'Household Planner'
+}
+
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation()
   const { logout } = useAuth()
-  const title = pageTitles[location.pathname] ?? 'Household Planner'
+  const title = resolveTitle(location.pathname)
 
   return (
     <div className="min-h-screen bg-gray-50 flex">

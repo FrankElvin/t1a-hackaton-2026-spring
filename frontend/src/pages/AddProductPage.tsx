@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import api from '@/lib/axios'
@@ -23,6 +24,8 @@ interface FormState {
   consumerCategory: ConsumerCategory | ''
   price: string
   monthlyConsumptionRate: string
+  autoCalc: boolean
+  forecasting: boolean
 }
 
 const EMPTY_FORM: FormState = {
@@ -35,6 +38,8 @@ const EMPTY_FORM: FormState = {
   consumerCategory: '',
   price: '',
   monthlyConsumptionRate: '',
+  autoCalc: false,
+  forecasting: false,
 }
 
 const UNIT_PRESETS = ['pcs', 'kg', 'g', 'L', 'ml', 'pack', 'box', 'bottle', 'bag', 'roll']
@@ -376,6 +381,7 @@ export default function AddProductPage() {
       ...(form.monthlyConsumptionRate
         ? { monthlyConsumptionRate: parseFloat(form.monthlyConsumptionRate) }
         : {}),
+      autoCalc: form.monthlyConsumptionRate ? form.autoCalc : true,
     }
     saveMutation.mutate(req)
   }
@@ -630,6 +636,23 @@ export default function AddProductPage() {
             />
           </div>
 
+          <div className="space-y-1.5">
+            <Label htmlFor="store">Store</Label>
+            <select
+              id="store"
+              value={form.storeId}
+              onChange={(e) => setForm((p) => ({ ...p, storeId: e.target.value }))}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Not specified —</option>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Additional details — collapsible */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <button
@@ -642,7 +665,6 @@ export default function AddProductPage() {
                 {!showAdditional && (
                   <span className="text-xs text-gray-400 font-normal">
                     {[
-                      form.storeId ? stores.find((s) => s.id === form.storeId)?.name : null,
                       form.category ? ITEM_CATEGORY_LABELS[form.category as ItemCategory] : null,
                       form.consumerCategory
                         ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
@@ -660,23 +682,6 @@ export default function AddProductPage() {
 
             {showAdditional && (
               <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="store">Store</Label>
-                  <select
-                    id="store"
-                    value={form.storeId}
-                    onChange={(e) => setForm((p) => ({ ...p, storeId: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">— Not specified —</option>
-                    {stores.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 <div className="space-y-1.5">
                   <Label htmlFor="category">Category</Label>
                   <select
@@ -722,37 +727,86 @@ export default function AddProductPage() {
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="price">Price</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={form.price}
-                      onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="rate">Monthly usage</Label>
-                    <Input
-                      id="rate"
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={form.monthlyConsumptionRate}
-                      onChange={(e) =>
-                        setForm((p) => ({ ...p, monthlyConsumptionRate: e.target.value }))
-                      }
-                      placeholder="e.g. 4"
-                    />
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="price">Price</Label>
+                  <Input
+                    id="price"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.price}
+                    onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
+                    placeholder="0.00"
+                  />
                 </div>
-                <p className="text-xs text-gray-400">
-                  Monthly usage: leave empty to auto-calculate from history
-                </p>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="rate">Monthly usage</Label>
+                  <Input
+                    id="rate"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.monthlyConsumptionRate}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, monthlyConsumptionRate: e.target.value }))
+                    }
+                    placeholder="e.g. 4"
+                  />
+                </div>
+
+                {form.monthlyConsumptionRate ? (
+                  <div className="flex items-center justify-between py-1">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
+                      <p className="text-xs text-gray-400">
+                        {form.autoCalc
+                          ? 'Starts with this rate, adjusts based on actual purchases'
+                          : 'Always uses exactly this rate for forecasting'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, autoCalc: !p.autoCalc }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                        form.autoCalc ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          form.autoCalc ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between py-1">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                        Enable forecasting
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {form.forecasting
+                          ? 'AI will estimate your consumption rate'
+                          : 'No forecast — notifications disabled, updates after real usage'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, forecasting: !p.forecasting }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                        form.forecasting ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          form.forecasting ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
