@@ -57,6 +57,7 @@ public class ItemService {
                     existing.setPrice(request.price());
                     existing.setConsumerCategory(request.consumerCategory());
                     existing.setMonthlyConsumptionRate(request.monthlyConsumptionRate());
+                    existing.setNotifiedRunOut(false);
                     return repository.save(existing);
                 });
     }
