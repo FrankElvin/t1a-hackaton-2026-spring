@@ -10,7 +10,7 @@
 
 ## 1. Configure environment
 
-The `.env` file already exists at the project root. Edit it and fill in all values marked with `!`:
+The `./artifacts/example-localhost.env` example file already exists. Edit it and fill in all values marked with <tbd>, then save it as `./.env` so docker-compose will utilize it.
 
 ```bash
 # Mandatory — change these
