@@ -1,0 +1,6 @@
+.env
+.claude/
+.idea/
+backend/.gradle/
+backend/build/
+google-credentials.json

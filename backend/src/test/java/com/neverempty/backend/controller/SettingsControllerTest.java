@@ -1,6 +1,7 @@
 package com.neverempty.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.neverempty.backend.config.AppProperties;
 import com.neverempty.backend.service.SettingsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,20 @@ class SettingsControllerTest {
 
     @MockitoBean
     private SettingsService settingsService;
+
+    @MockitoBean
+    private AppProperties appProperties;
+
+    @Test
+    void getForwardEmail_returnsEmailFromConfig() throws Exception {
+        when(appProperties.google()).thenReturn(
+                new AppProperties.Google("", "inbox@t1aclmllmagents.click"));
+
+        mockMvc.perform(get("/api/v1/settings/forward-email")
+                        .with(jwt().jwt(j -> j.subject("user-1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.forwardEmail").value("inbox@t1aclmllmagents.click"));
+    }
 
     @Test
     void getCalculationDate_returnsDate() throws Exception {

@@ -1,0 +1,18 @@
+From: noreply@store.example.com
+To: customer@example.com
+Subject: Your order confirmation #12345
+Date: Wed, 04 Mar 2026 12:00:00 +0000
+
+Thank you for your order!
+
+Order #12345
+---
+Milk 2% 1L          x 2    $2.99 each
+Whole Wheat Bread   x 1    $3.49
+Butter 200g         x 1    $4.20
+Orange Juice 1L     x 2    $1.99 each
+---
+Subtotal: $16.65
+Total: $18.32
+
+Ordered on March 4, 2026.
