@@ -166,26 +166,39 @@ components:
           example: 89.99
         consumerCategory:
           $ref: '#/components/schemas/ConsumerCategory'
-        monthlyConsumptionRate:
+        daysToRestock:
           type: number
           format: double
           description: |
-            Manual override for consumption rate (units per month).
-            If null and autoCalc is true, the app infers it from purchase history.
-          example: 8.0
+            Days until this item needs to be restocked. Decremented by 1.0 every day at midnight.
+            Set at creation from the formula: currentQuantity / (calcDate - lastBoughtDate + daysToRestock).
+            Stored as double internally; displayed and entered as integer in the UI.
+          example: 7.0
+        usagePerDay:
+          type: number
+          format: double
+          description: |
+            Calculated daily consumption rate (units/day).
+            Derived automatically at creation and updated via markAsBought / markDepleted.
+          readOnly: true
+          example: 0.43
         autoCalc:
           type: boolean
           default: false
           description: |
-            Controls how the consumption rate is determined over time.
-            - true + monthlyConsumptionRate set: use rate as initial value, then adjust based on real purchases
-            - false + monthlyConsumptionRate set: always use the manually entered rate, never adjust
-            - true + monthlyConsumptionRate null: infer rate from purchase history (no initial estimate)
+            If true, usagePerDay is recalculated automatically on markAsBought and markDepleted events.
         lastBoughtDate:
           type: string
           format: date
           description: Date when this item was last purchased. Used as the anchor for depletion forecasting.
           example: "2026-03-04"
+        standardPurchaseQuantity:
+          type: number
+          format: double
+          description: |
+            How much of this item is typically bought in one shopping trip.
+            Defaults to currentQuantity when first created if not specified explicitly.
+          example: 2.0
         createdAt:
           type: string
           format: date-time
@@ -216,9 +229,12 @@ components:
           format: double
         consumerCategory:
           $ref: '#/components/schemas/ConsumerCategory'
-        monthlyConsumptionRate:
-          type: number
-          format: double
+        daysToRestock:
+          type: integer
+          description: |
+            How many days until this item needs restocking. Used with lastBoughtDate and currentQuantity
+            to calculate usagePerDay at creation time.
+          example: 7
         autoCalc:
           type: boolean
           default: false
@@ -262,29 +278,14 @@ components:
           format: double
           description: Confidence 0-1
 
-    MarkConsumedRequest:
+    MarkDepletedRequest:
       type: object
-      description: Report that an item has been partially or fully used
+      description: Mark an item as fully depleted (stock reached zero)
       properties:
-        quantityConsumed:
-          type: number
-          format: double
-          description: How much was consumed. If omitted, item is marked as fully depleted.
-          example: 1.0
         depletedAt:
           type: string
           format: date
-          description: Date of consumption (defaults to today)
-
-    SetConsumptionRateRequest:
-      type: object
-      required: [monthlyRate]
-      properties:
-        monthlyRate:
-          type: number
-          format: double
-          description: Units of this item consumed per month
-          example: 6.0
+          description: Actual date item ran out (defaults to today)
 
     # ─── Import ──────────────────────────────────────────────────────────────
 
@@ -912,41 +913,14 @@ paths:
         '404':
           description: Item not found
 
-  /items/{itemId}/consumed:
+  /items/{itemId}/depleted:
     post:
       tags: [Items]
-      summary: Report consumption (or mark item as fully depleted)
-      operationId: markConsumed
-      parameters:
-        - name: itemId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MarkConsumedRequest'
-      responses:
-        '200':
-          description: Updated item after consumption recorded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Item'
-        '404':
-          description: Item not found
-
-  /items/{itemId}/consumption-rate:
-    put:
-      tags: [Items]
-      summary: Manually set monthly consumption rate for an item
+      summary: Mark item as fully depleted (stock reached zero)
       description: |
-        Corresponds to user saying "I need X units of product Y per month".
-        Overrides the app's automatic inference.
-      operationId: setConsumptionRate
+        Recalculates usagePerDay from actual depletion date vs lastBoughtDate
+        if autoCalc=true or if usagePerDay has never been set.
+      operationId: markDepleted
       parameters:
         - name: itemId
           in: path
@@ -955,14 +929,13 @@ paths:
             type: string
             format: uuid
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SetConsumptionRateRequest'
+              $ref: '#/components/schemas/MarkDepletedRequest'
       responses:
         '200':
-          description: Updated item
+          description: Updated item after depletion recorded
           content:
             application/json:
               schema:
@@ -1357,3 +1330,4 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ItemForecast'
+в

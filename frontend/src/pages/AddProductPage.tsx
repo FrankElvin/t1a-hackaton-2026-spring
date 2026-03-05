@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/axios'
 import keycloak from '@/lib/keycloak'
 import { Button } from '@/components/ui/button'
@@ -9,7 +8,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { mockStores, mockItems } from '@/lib/mockData'
 import type {
-  ItemCategory,
   ConsumerCategory,
   Item,
   CreateItemRequest,
@@ -29,12 +27,11 @@ interface FormState {
   unit: string
   lastBoughtDate: string
   storeId: string
-  category: ItemCategory | ''
   consumerCategory: ConsumerCategory | ''
   price: string
-  monthlyConsumptionRate: string
+  daysToRestock: string
   autoCalc: boolean
-  forecasting: boolean
+  standardPurchaseQuantity: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -43,25 +40,14 @@ const EMPTY_FORM: FormState = {
   unit: 'pcs',
   lastBoughtDate: new Date().toISOString().split('T')[0],
   storeId: '',
-  category: '',
   consumerCategory: '',
   price: '',
-  monthlyConsumptionRate: '',
-  autoCalc: false,
-  forecasting: false,
+  daysToRestock: '',
+  autoCalc: true,
+  standardPurchaseQuantity: '',
 }
 
 const UNIT_PRESETS = ['pcs', 'kg', 'g', 'L', 'ml', 'pack', 'box', 'bottle', 'bag', 'roll']
-
-const ITEM_CATEGORY_LABELS: Record<ItemCategory, string> = {
-  FOOD: 'Food',
-  BEVERAGES: 'Beverages',
-  CLEANING: 'Cleaning',
-  PERSONAL_CARE: 'Personal Care',
-  PET_FOOD: 'Pet Food',
-  MEDICINE: 'Medicine',
-  OTHER: 'Other',
-}
 
 const CONSUMER_CATEGORY_LABELS: Record<ConsumerCategory, string> = {
   ADULT: 'Adults',
@@ -94,257 +80,168 @@ interface BarcodeProductPreview {
   unit: string
 }
 
-const SELECT_CLASS =
-  'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+function ProgressConsole({ log, isProcessing }: { log: LogEntry[]; isProcessing: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null)
 
-interface ProductFormFieldsProps {
-  form: FormState
-  setForm: React.Dispatch<React.SetStateAction<FormState>>
-  stores: Store[]
-  showAdditional: boolean
-  setShowAdditional: React.Dispatch<React.SetStateAction<boolean>>
-  idPrefix?: string
-  excludeFields?: ('name' | 'qty' | 'unit' | 'lastBoughtDate' | 'store' | 'additional')[]
-}
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight
+    }
+  }, [log])
 
-function ProductFormFields({
-  form,
-  setForm,
-  stores,
-  showAdditional,
-  setShowAdditional,
-  idPrefix = '',
-  excludeFields = [],
-}: ProductFormFieldsProps) {
-  const id = (name: string) => (idPrefix ? `${idPrefix}-${name}` : name)
+  if (log.length === 0) return null
+
   return (
-    <>
-      {!excludeFields.includes('name') && (
-      <div className="space-y-1.5">
-        <Label htmlFor={id('name')}>Name <span className="text-red-500">*</span></Label>
-        <Input
-          id={id('name')}
-          value={form.name}
-          onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-          placeholder="e.g. Oat Milk"
-          required
-        />
-      </div>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor={id('qty')}>Quantity <span className="text-red-500">*</span></Label>
-          <Input
-            id={id('qty')}
-            type="number"
-            min="0"
-            step="any"
-            value={form.currentQuantity}
-            onChange={(e) => setForm((p) => ({ ...p, currentQuantity: e.target.value }))}
-            required
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor={id('unit')}>Unit <span className="text-red-500">*</span></Label>
-          <Input
-            id={id('unit')}
-            value={form.unit}
-            onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
-            placeholder="pcs, kg, L…"
-            required
-          />
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {UNIT_PRESETS.map((u) => (
-          <button
-            key={u}
-            type="button"
-            onClick={() => setForm((p) => ({ ...p, unit: u }))}
-            className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${
-              form.unit === u
-                ? 'bg-blue-500 text-white border-blue-500'
-                : 'border-gray-300 text-gray-600 hover:border-gray-400'
-            }`}
+    <div
+      ref={containerRef}
+      className="bg-gray-900 rounded-xl p-4 font-mono text-xs max-h-56 overflow-y-auto space-y-1 border border-gray-700"
+    >
+      {log.map((entry, i) => (
+        <div key={i} className="flex gap-2">
+          <span className="text-gray-500 shrink-0">{entry.time}</span>
+          <span
+            className={
+              entry.type === 'success'
+                ? 'text-green-400'
+                : entry.type === 'error'
+                  ? 'text-red-400'
+                  : 'text-gray-300'
+            }
           >
-            {u}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor={id('lastBoughtDate')}>Last bought</Label>
-        <Input
-          id={id('lastBoughtDate')}
-          type="date"
-          value={form.lastBoughtDate}
-          onChange={(e) => setForm((p) => ({ ...p, lastBoughtDate: e.target.value }))}
-          max={new Date().toISOString().split('T')[0]}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor={id('store')}>Store</Label>
-        <select
-          id={id('store')}
-          value={form.storeId}
-          onChange={(e) => setForm((p) => ({ ...p, storeId: e.target.value }))}
-          className={SELECT_CLASS}
-        >
-          <option value="">— Not specified —</option>
-          {stores.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowAdditional((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          <span>Additional details</span>
-          <span className="flex items-center gap-2">
-            {!showAdditional && (
-              <span className="text-xs text-gray-400 font-normal">
-                {[
-                  form.category ? ITEM_CATEGORY_LABELS[form.category as ItemCategory] : null,
-                  form.consumerCategory
-                    ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
-                    : null,
-                  form.price ? `$${form.price}` : null,
-                  form.monthlyConsumptionRate ? `${form.monthlyConsumptionRate}/mo` : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || 'optional'}
-              </span>
-            )}
-            <span className="text-gray-400">{showAdditional ? '▲' : '▼'}</span>
+            {entry.text}
           </span>
-        </button>
-        {showAdditional && (
-          <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
-            <div className="space-y-1.5">
-              <Label htmlFor={id('category')}>Category</Label>
-              <select
-                id={id('category')}
-                value={form.category}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, category: e.target.value as ItemCategory | '' }))
-                }
-                className={SELECT_CLASS}
-              >
-                <option value="">— Not specified —</option>
-                {(Object.entries(ITEM_CATEGORY_LABELS) as [ItemCategory, string][]).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={id('consumer')}>Consumed by</Label>
-              <select
-                id={id('consumer')}
-                value={form.consumerCategory}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    consumerCategory: e.target.value as ConsumerCategory | '',
-                  }))
-                }
-                className={SELECT_CLASS}
-              >
-                <option value="">— Not specified —</option>
-                {(Object.entries(CONSUMER_CATEGORY_LABELS) as [ConsumerCategory, string][]).map(
-                  ([v, l]) => (
-                    <option key={v} value={v}>{l}</option>
-                  )
-                )}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={id('price')}>Price</Label>
-              <Input
-                id={id('price')}
-                type="number"
-                min="0"
-                step="any"
-                value={form.price}
-                onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={id('rate')}>Monthly usage</Label>
-              <Input
-                id={id('rate')}
-                type="number"
-                min="0"
-                step="any"
-                value={form.monthlyConsumptionRate}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, monthlyConsumptionRate: e.target.value }))
-                }
-                placeholder="e.g. 4"
-              />
-            </div>
-            {form.monthlyConsumptionRate ? (
-              <div className="flex items-center justify-between py-1">
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
-                  <p className="text-xs text-gray-400">
-                    {form.autoCalc
-                      ? 'Starts with this rate, adjusts based on actual purchases'
-                      : 'Always uses exactly this rate for forecasting'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, autoCalc: !p.autoCalc }))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                    form.autoCalc ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                      form.autoCalc ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between py-1">
-                <div>
-                  <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                    Enable forecasting
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {form.forecasting
-                      ? 'AI will estimate your consumption rate'
-                      : 'No forecast — notifications disabled, updates after real usage'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, forecasting: !p.forecasting }))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                    form.forecasting ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                      form.forecasting ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </>
+        </div>
+      ))}
+      {isProcessing && (
+        <div className="flex gap-2">
+          <span className="text-gray-500 shrink-0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+          <span className="text-blue-400 animate-pulse">Processing...</span>
+        </div>
+      )}
+    </div>
   )
 }
+
+function timeStamp(): string {
+  return new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (MOCK_AUTH) return {}
+  try {
+    await keycloak.updateToken(30)
+  } catch {
+    keycloak.login()
+    throw new Error('Token expired')
+  }
+  return { Authorization: `Bearer ${keycloak.token}` }
+}
+
+// ── Mock functions for batch parse (used when MOCK_AUTH=true) ──
+
+async function mockParseReceipt(
+  _formData: FormData,
+  onProgress: (msg: string) => void
+): Promise<ImportBatchResponse> {
+  onProgress('Mock: Extracting text from receipt...')
+  await new Promise((r) => setTimeout(r, 300))
+  onProgress('Mock: AI identified 3 products')
+  onProgress('Import batch ready: 3 products to review')
+  return {
+    id: crypto.randomUUID(),
+    source: 'RECEIPT',
+    storeId: 's1',
+    parsedProducts: [
+      { index: 1, name: 'Mleko świeże 2%', quantity: 2, unit: 'L', category: 'BEVERAGES', monthlyConsumptionRate: 12 },
+      { index: 2, name: 'Chleb razowy', quantity: 1, unit: 'pcs', category: 'FOOD', monthlyConsumptionRate: 12 },
+      { index: 3, name: 'Jajka 10 szt', quantity: 1, unit: 'pcs', category: 'FOOD', monthlyConsumptionRate: 4 },
+    ],
+    unrecognizedLines: [],
+    createdAt: new Date().toISOString(),
+  }
+}
+
+async function mockParseEmail(
+  _content: string,
+  onProgress: (msg: string) => void
+): Promise<ImportBatchResponse> {
+  onProgress('Mock: Parsing email...')
+  await new Promise((r) => setTimeout(r, 300))
+  onProgress('Mock: AI identified 2 products')
+  onProgress('Import batch ready: 2 products to review')
+  return {
+    id: crypto.randomUUID(),
+    source: 'EMAIL',
+    parsedProducts: [
+      { index: 1, name: 'Organic Oat Milk', quantity: 2, unit: 'L', category: 'BEVERAGES', monthlyConsumptionRate: 8 },
+      { index: 2, name: 'Whole Grain Bread', quantity: 1, unit: 'pcs', category: 'FOOD', monthlyConsumptionRate: 10 },
+    ],
+    unrecognizedLines: [],
+    createdAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Stream SSE events from a parse endpoint → returns ImportBatchResponse.
+ */
+async function streamParseImport(
+  url: string,
+  body: FormData | string,
+  contentType: 'multipart' | 'json',
+  onProgress: (msg: string) => void
+): Promise<ImportBatchResponse> {
+  const headers = await getAuthHeaders()
+  if (contentType === 'json') {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: contentType === 'json' ? body : (body as FormData),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Parse failed: ${response.status}`)
+  }
+
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: ImportBatchResponse | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    let eventName = ''
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        const data = line.slice(5)
+        if (eventName === 'progress') {
+          onProgress(data)
+        } else if (eventName === 'result') {
+          result = JSON.parse(data)
+        } else if (eventName === 'error') {
+          throw new Error(data)
+        }
+        eventName = ''
+      }
+    }
+  }
+
+  if (!result) throw new Error('No result received from server')
+  return result
+}
+
+// ── Review Product Form (batch review) ──
+// Uses mk_dev's inline form fields for the "create new" mode
 
 type ReviewProductMode = 'choose' | 'existing' | 'new'
 
@@ -373,7 +270,6 @@ interface ReviewProductFormProps {
 
 function ReviewProductForm({
   parsed,
-  batchStoreId,
   mode,
   setMode,
   selectedExistingItem,
@@ -395,27 +291,13 @@ function ReviewProductForm({
 }: ReviewProductFormProps) {
   const [nameSuggestionsOpen, setNameSuggestionsOpen] = useState(false)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const stdQtyEditedRef = useRef(false)
 
   const filteredNameSuggestions = form.name.trim()
     ? items.filter((i) =>
         i.name.toLowerCase().includes(form.name.toLowerCase().trim())
       ).slice(0, 6)
     : []
-
-  function prefillFromParsed(p: ParsedProductDto, storeId?: string) {
-    setForm((prev) => ({
-      ...prev,
-      name: p.name,
-      currentQuantity: String(p.quantity),
-      unit: p.unit || 'pcs',
-      ...(p.priceAmount != null ? { price: String(p.priceAmount) } : {}),
-      ...(p.category ? { category: p.category } : {}),
-      ...(p.monthlyConsumptionRate != null
-        ? { monthlyConsumptionRate: String(p.monthlyConsumptionRate) }
-        : {}),
-      ...(storeId ? { storeId } : {}),
-    }))
-  }
 
   return (
     <div role="tabpanel" className="space-y-4">
@@ -442,10 +324,7 @@ function ReviewProductForm({
           <div className="space-y-1">
             <button
               type="button"
-              onClick={() => {
-                setMode('new')
-                prefillFromParsed(parsed, batchStoreId)
-              }}
+              onClick={() => setMode('new')}
               className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50"
             >
               + Create new: {parsed.name}
@@ -535,19 +414,21 @@ function ReviewProductForm({
               name: form.name.trim(),
               currentQuantity: parseFloat(form.currentQuantity) || 0,
               unit: form.unit.trim(),
+              ...(form.lastBoughtDate ? { lastBoughtDate: form.lastBoughtDate } : {}),
               ...(form.storeId ? { storeId: form.storeId } : {}),
-              ...(form.category ? { category: form.category as ItemCategory } : {}),
               ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
               ...(form.price ? { price: parseFloat(form.price) } : {}),
-              ...(form.monthlyConsumptionRate
-                ? { monthlyConsumptionRate: parseFloat(form.monthlyConsumptionRate) }
+              ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
+              autoCalc: form.autoCalc,
+              ...(form.standardPurchaseQuantity
+                ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
                 : {}),
-              autoCalc: form.monthlyConsumptionRate ? form.autoCalc : true,
             }
             onSave(req)
           }}
           className="space-y-4"
         >
+          {/* Name with suggestions */}
           <div className="space-y-1.5 relative">
             <Label htmlFor="review-name">Name <span className="text-red-500">*</span></Label>
             <Input
@@ -587,15 +468,217 @@ function ReviewProductForm({
               </div>
             )}
           </div>
-          <ProductFormFields
-            form={form}
-            setForm={setForm}
-            stores={stores}
-            showAdditional={showAdditional}
-            setShowAdditional={setShowAdditional}
-            idPrefix="review"
-            excludeFields={['name']}
-          />
+
+          {/* Inline form fields — same as mk_dev manual form */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="review-qty2">
+                Quantity <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="review-qty2"
+                type="number"
+                min="0"
+                step="any"
+                value={form.currentQuantity}
+                onChange={(e) => {
+                  const qty = e.target.value
+                  setForm((p) => ({
+                    ...p,
+                    currentQuantity: qty,
+                    ...(!stdQtyEditedRef.current ? { standardPurchaseQuantity: qty } : {}),
+                  }))
+                }}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="review-unit">
+                Unit <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="review-unit"
+                value={form.unit}
+                onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
+                placeholder="pcs, kg, L…"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {UNIT_PRESETS.map((u) => (
+              <button
+                key={u}
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, unit: u }))}
+                className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${
+                  form.unit === u
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="review-lastBoughtDate">Last bought</Label>
+            <Input
+              id="review-lastBoughtDate"
+              type="date"
+              value={form.lastBoughtDate}
+              onChange={(e) => setForm((p) => ({ ...p, lastBoughtDate: e.target.value }))}
+              max={new Date().toISOString().split('T')[0]}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="review-store">Store</Label>
+            <select
+              id="review-store"
+              value={form.storeId}
+              onChange={(e) => setForm((p) => ({ ...p, storeId: e.target.value }))}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Not specified —</option>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="review-daysToRestock">Days to restock</Label>
+            <Input
+              id="review-daysToRestock"
+              type="number"
+              min="0"
+              step="1"
+              value={form.daysToRestock}
+              onChange={(e) => setForm((p) => ({ ...p, daysToRestock: e.target.value }))}
+              placeholder="e.g. 7"
+            />
+            <p className="text-xs text-gray-400">How many days until you need to buy this again</p>
+          </div>
+
+          {form.daysToRestock && (
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
+                <p className="text-xs text-gray-400">
+                  {form.autoCalc
+                    ? 'Recalculates rate from actual buy/deplete events'
+                    : 'Always uses this fixed estimate'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, autoCalc: !p.autoCalc }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.autoCalc ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.autoCalc ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
+          {/* Additional details — collapsible */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAdditional((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <span>Additional details</span>
+              <span className="flex items-center gap-2">
+                {!showAdditional && (
+                  <span className="text-xs text-gray-400 font-normal">
+                    {[
+                      form.consumerCategory
+                        ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
+                        : null,
+                      form.price ? `$${form.price}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'optional'}
+                  </span>
+                )}
+                <span className="text-gray-400">{showAdditional ? '▲' : '▼'}</span>
+              </span>
+            </button>
+
+            {showAdditional && (
+              <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="review-consumer">Consumed by</Label>
+                  <select
+                    id="review-consumer"
+                    value={form.consumerCategory}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        consumerCategory: e.target.value as ConsumerCategory | '',
+                      }))
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Not specified —</option>
+                    {(Object.entries(CONSUMER_CATEGORY_LABELS) as [ConsumerCategory, string][]).map(
+                      ([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="review-stdQty">Standard purchase quantity</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="review-stdQty"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={form.standardPurchaseQuantity}
+                      onChange={(e) => {
+                        stdQtyEditedRef.current = true
+                        setForm((p) => ({ ...p, standardPurchaseQuantity: e.target.value }))
+                      }}
+                      placeholder={form.currentQuantity || '1'}
+                      className="flex-1"
+                    />
+                    <span className="text-sm text-gray-500 shrink-0">{form.unit}</span>
+                  </div>
+                  <p className="text-xs text-gray-400">How much you typically buy in one trip</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="review-price">Price</Label>
+                  <Input
+                    id="review-price"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.price}
+                    onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {saveError && <p className="text-sm text-red-500">{saveError}</p>}
           <div className="flex gap-2">
             <Button type="submit" className="flex-1">
@@ -614,165 +697,14 @@ function ReviewProductForm({
   )
 }
 
-function ProgressConsole({ log, isProcessing }: { log: LogEntry[]; isProcessing: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
-    }
-  }, [log])
-
-  if (log.length === 0) return null
-
-  return (
-    <div
-      ref={containerRef}
-      className="bg-gray-900 rounded-xl p-4 font-mono text-xs max-h-56 overflow-y-auto space-y-1 border border-gray-700"
-    >
-      {log.map((entry, i) => (
-        <div key={i} className="flex gap-2">
-          <span className="text-gray-500 shrink-0">{entry.time}</span>
-          <span
-            className={
-              entry.type === 'success'
-                ? 'text-green-400'
-                : entry.type === 'error'
-                  ? 'text-red-400'
-                  : 'text-gray-300'
-            }
-          >
-            {entry.text}
-          </span>
-        </div>
-      ))}
-      {isProcessing && (
-        <div className="flex gap-2">
-          <span className="text-gray-500 shrink-0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-          <span className="text-blue-400 animate-pulse">Processing...</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function timeStamp(): string {
-  return new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  if (MOCK_AUTH) return {}
-  try {
-    await keycloak.updateToken(30)
-  } catch {
-    keycloak.login()
-    throw new Error('Token expired')
-  }
-  return { Authorization: `Bearer ${keycloak.token}` }
-}
-
-async function mockParseReceipt(
-  _formData: FormData,
-  onProgress: (msg: string) => void
-): Promise<ImportBatchResponse> {
-  onProgress('Mock: Extracting text from receipt...')
-  await new Promise((r) => setTimeout(r, 300))
-  onProgress('Mock: AI identified 3 products')
-  onProgress('Import batch ready: 3 products to review')
-  return {
-    id: crypto.randomUUID(),
-    source: 'RECEIPT',
-    storeId: 's1',
-    parsedProducts: [
-      { index: 1, name: 'Mleko świeże 2%', quantity: 2, unit: 'L', category: 'BEVERAGES', monthlyConsumptionRate: 12 },
-      { index: 2, name: 'Chleb razowy', quantity: 1, unit: 'pcs', category: 'FOOD', monthlyConsumptionRate: 12 },
-      { index: 3, name: 'Jajka 10 szt', quantity: 1, unit: 'pcs', category: 'FOOD', monthlyConsumptionRate: 4 },
-    ],
-    unrecognizedLines: [],
-    createdAt: new Date().toISOString(),
-  }
-}
-
-async function mockParseEmail(
-  _content: string,
-  onProgress: (msg: string) => void
-): Promise<ImportBatchResponse> {
-  onProgress('Mock: Parsing email...')
-  await new Promise((r) => setTimeout(r, 300))
-  onProgress('Mock: AI identified 2 products')
-  onProgress('Import batch ready: 2 products to review')
-  return {
-    id: crypto.randomUUID(),
-    source: 'EMAIL',
-    parsedProducts: [
-      { index: 1, name: 'Organic Oat Milk', quantity: 2, unit: 'L', category: 'BEVERAGES', monthlyConsumptionRate: 8 },
-      { index: 2, name: 'Whole Grain Bread', quantity: 1, unit: 'pcs', category: 'FOOD', monthlyConsumptionRate: 10 },
-    ],
-    unrecognizedLines: [],
-    createdAt: new Date().toISOString(),
-  }
-}
-
-async function streamParseImport(
-  url: string,
-  body: FormData | string,
-  contentType: 'multipart' | 'json',
-  onProgress: (msg: string) => void
-): Promise<ImportBatchResponse> {
-  const headers = await getAuthHeaders()
-  if (contentType === 'json') {
-    headers['Content-Type'] = 'application/json'
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: contentType === 'json' ? body : (body as FormData),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Parse failed: ${response.status}`)
-  }
-
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let result: ImportBatchResponse | null = null
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    let eventName = ''
-    for (const line of lines) {
-      if (line.startsWith('event:')) {
-        eventName = line.slice(6).trim()
-      } else if (line.startsWith('data:')) {
-        const data = line.slice(5)
-        if (eventName === 'progress') {
-          onProgress(data)
-        } else if (eventName === 'result') {
-          result = JSON.parse(data)
-        } else if (eventName === 'error') {
-          throw new Error(data)
-        }
-        eventName = ''
-      }
-    }
-  }
-
-  if (!result) throw new Error('No result received from server')
-  return result
-}
+// ── Main Page Component ──
 
 export default function AddProductPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [method, setMethod] = useState<Method>('manual')
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const stdQtyEditedRef = useRef(false)
   const [prefillBanner, setPrefillBanner] = useState<string | null>(null)
   const [barcodeProductPreview, setBarcodeProductPreview] = useState<BarcodeProductPreview | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -806,6 +738,7 @@ export default function AddProductPage() {
     enabled: !MOCK_AUTH,
   })
 
+  // ── Batch review state (from an_dev) ──
   const { data: importBatches = [], refetch: refetchBatches } = useQuery<ImportBatchResponse[]>({
     queryKey: ['import-batches'],
     queryFn: MOCK_AUTH
@@ -814,7 +747,6 @@ export default function AddProductPage() {
     enabled: method === 'receipt' || method === 'email',
   })
 
-  // Review flow: batch being reviewed, current product index
   const [reviewBatch, setReviewBatch] = useState<ImportBatchResponse | null>(null)
   const [reviewIndex, setReviewIndex] = useState(0)
 
@@ -826,11 +758,11 @@ export default function AddProductPage() {
     enabled: !!reviewBatch,
   })
 
-  type ReviewProductMode = 'choose' | 'existing' | 'new'
   const [reviewProductMode, setReviewProductMode] = useState<ReviewProductMode>('choose')
   const [selectedExistingItem, setSelectedExistingItem] = useState<Item | null>(null)
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([])
   const [matchSuggestionsLoading, setMatchSuggestionsLoading] = useState(false)
+
   const FORWARD_EMAIL =
     forwardEmailData?.forwardEmail ??
     import.meta.env.VITE_FORWARD_EMAIL ??
@@ -849,6 +781,18 @@ export default function AddProductPage() {
   useEffect(() => {
     setBarcodeSupported('BarcodeDetector' in window)
   }, [])
+
+  // ── Review batch effects ──
+  function prefillFromParsed(p: ParsedProductDto, batchStoreId?: string) {
+    setForm((prev) => ({
+      ...prev,
+      name: p.name,
+      currentQuantity: String(p.quantity),
+      unit: p.unit || 'pcs',
+      ...(p.priceAmount != null ? { price: String(p.priceAmount) } : {}),
+      ...(batchStoreId ? { storeId: batchStoreId } : {}),
+    }))
+  }
 
   useEffect(() => {
     if (!reviewBatch || reviewIndex >= reviewBatch.parsedProducts.length) return
@@ -990,24 +934,13 @@ export default function AddProductPage() {
       if (MOCK_AUTH) return Promise.resolve({ id: crypto.randomUUID(), ...req } as Item)
       return api.post<Item>('/items', req).then((r) => r.data)
     },
-    onSuccess: () => navigate('/products'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['forecast'] })
+      navigate('/products')
+    },
     onError: () => setSaveError('Failed to save. Please try again.'),
   })
-
-  function prefillFromParsed(p: ParsedProductDto, batchStoreId?: string) {
-    setForm((prev) => ({
-      ...prev,
-      name: p.name,
-      currentQuantity: String(p.quantity),
-      unit: p.unit || 'pcs',
-      ...(p.priceAmount != null ? { price: String(p.priceAmount) } : {}),
-      ...(p.category ? { category: p.category } : {}),
-      ...(p.monthlyConsumptionRate != null
-        ? { monthlyConsumptionRate: String(p.monthlyConsumptionRate) }
-        : {}),
-      ...(batchStoreId ? { storeId: batchStoreId } : {}),
-    }))
-  }
 
   function handleManualSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -1018,17 +951,18 @@ export default function AddProductPage() {
       unit: form.unit.trim(),
       ...(form.lastBoughtDate ? { lastBoughtDate: form.lastBoughtDate } : {}),
       ...(form.storeId ? { storeId: form.storeId } : {}),
-      ...(form.category ? { category: form.category as ItemCategory } : {}),
       ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
       ...(form.price ? { price: parseFloat(form.price) } : {}),
-      ...(form.monthlyConsumptionRate
-        ? { monthlyConsumptionRate: parseFloat(form.monthlyConsumptionRate) }
+      ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
+      autoCalc: form.autoCalc,
+      ...(form.standardPurchaseQuantity
+        ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
         : {}),
-      autoCalc: form.monthlyConsumptionRate ? form.autoCalc : true,
     }
     saveMutation.mutate(req)
   }
 
+  // ── Batch review handlers ──
   async function handleReviewSave(req?: CreateItemRequest) {
     setSaveError(null)
     try {
@@ -1045,13 +979,13 @@ export default function AddProductPage() {
           currentQuantity: parseFloat(form.currentQuantity) || 0,
           unit: form.unit.trim(),
           ...(form.storeId ? { storeId: form.storeId } : {}),
-          ...(form.category ? { category: form.category as ItemCategory } : {}),
           ...(form.consumerCategory ? { consumerCategory: form.consumerCategory as ConsumerCategory } : {}),
           ...(form.price ? { price: parseFloat(form.price) } : {}),
-          ...(form.monthlyConsumptionRate
-            ? { monthlyConsumptionRate: parseFloat(form.monthlyConsumptionRate) }
+          ...(form.daysToRestock ? { daysToRestock: parseInt(form.daysToRestock, 10) } : {}),
+          autoCalc: form.autoCalc,
+          ...(form.standardPurchaseQuantity
+            ? { standardPurchaseQuantity: parseFloat(form.standardPurchaseQuantity) }
             : {}),
-          autoCalc: form.monthlyConsumptionRate ? form.autoCalc : true,
         }
         if (MOCK_AUTH) {
           await new Promise((r) => setTimeout(r, 300))
@@ -1083,6 +1017,8 @@ export default function AddProductPage() {
     refetchBatches()
     setReviewBatch(null)
     setReviewIndex(0)
+    queryClient.invalidateQueries({ queryKey: ['items'] })
+    queryClient.invalidateQueries({ queryKey: ['forecast'] })
     navigate('/products')
   }
 
@@ -1265,13 +1201,229 @@ export default function AddProductPage() {
             </div>
           )}
 
-          <ProductFormFields
-            form={form}
-            setForm={setForm}
-            stores={stores}
-            showAdditional={showAdditional}
-            setShowAdditional={setShowAdditional}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="name">
+              Name <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="name"
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              placeholder="e.g. Oat Milk"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="qty">
+                Quantity <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="qty"
+                type="number"
+                min="0"
+                step="any"
+                value={form.currentQuantity}
+                onChange={(e) => {
+                  const qty = e.target.value
+                  setForm((p) => ({
+                    ...p,
+                    currentQuantity: qty,
+                    ...(!stdQtyEditedRef.current ? { standardPurchaseQuantity: qty } : {}),
+                  }))
+                }}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="unit">
+                Unit <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="unit"
+                value={form.unit}
+                onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
+                placeholder="pcs, kg, L…"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Unit presets */}
+          <div className="flex flex-wrap gap-1.5">
+            {UNIT_PRESETS.map((u) => (
+              <button
+                key={u}
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, unit: u }))}
+                className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${
+                  form.unit === u
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="lastBoughtDate">Last bought</Label>
+            <Input
+              id="lastBoughtDate"
+              type="date"
+              value={form.lastBoughtDate}
+              onChange={(e) => setForm((p) => ({ ...p, lastBoughtDate: e.target.value }))}
+              max={new Date().toISOString().split('T')[0]}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="store">Store</Label>
+            <select
+              id="store"
+              value={form.storeId}
+              onChange={(e) => setForm((p) => ({ ...p, storeId: e.target.value }))}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Not specified —</option>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Days to restock */}
+          <div className="space-y-1.5">
+            <Label htmlFor="daysToRestock">Days to restock</Label>
+            <Input
+              id="daysToRestock"
+              type="number"
+              min="0"
+              step="1"
+              value={form.daysToRestock}
+              onChange={(e) => setForm((p) => ({ ...p, daysToRestock: e.target.value }))}
+              placeholder="e.g. 7"
+            />
+            <p className="text-xs text-gray-400">How many days until you need to buy this again</p>
+          </div>
+
+          {form.daysToRestock && (
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
+                <p className="text-xs text-gray-400">
+                  {form.autoCalc
+                    ? 'Recalculates rate from actual buy/deplete events'
+                    : 'Always uses this fixed estimate'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, autoCalc: !p.autoCalc }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.autoCalc ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.autoCalc ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
+          {/* Additional details — collapsible */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAdditional((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <span>Additional details</span>
+              <span className="flex items-center gap-2">
+                {!showAdditional && (
+                  <span className="text-xs text-gray-400 font-normal">
+                    {[
+                      form.consumerCategory
+                        ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
+                        : null,
+                      form.price ? `$${form.price}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'optional'}
+                  </span>
+                )}
+                <span className="text-gray-400">{showAdditional ? '▲' : '▼'}</span>
+              </span>
+            </button>
+
+            {showAdditional && (
+              <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="consumer">Consumed by</Label>
+                  <select
+                    id="consumer"
+                    value={form.consumerCategory}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        consumerCategory: e.target.value as ConsumerCategory | '',
+                      }))
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Not specified —</option>
+                    {(Object.entries(CONSUMER_CATEGORY_LABELS) as [ConsumerCategory, string][]).map(
+                      ([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="stdQty">Standard purchase quantity</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="stdQty"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={form.standardPurchaseQuantity}
+                      onChange={(e) => {
+                        stdQtyEditedRef.current = true
+                        setForm((p) => ({ ...p, standardPurchaseQuantity: e.target.value }))
+                      }}
+                      placeholder={form.currentQuantity || '1'}
+                      className="flex-1"
+                    />
+                    <span className="text-sm text-gray-500 shrink-0">{form.unit}</span>
+                  </div>
+                  <p className="text-xs text-gray-400">How much you typically buy in one trip</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="price">Price</Label>
+                  <Input
+                    id="price"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.price}
+                    onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           {saveError && <p className="text-sm text-red-500">{saveError}</p>}
 
@@ -1282,7 +1434,7 @@ export default function AddProductPage() {
         </div>
       )}
 
-      {/* ── Review batch flow ── */}
+      {/* ── Review batch flow (from an_dev) ── */}
       {reviewBatch && (method === 'receipt' || method === 'email') && (
         <ReviewProductForm
           parsed={reviewBatch.parsedProducts[reviewIndex]}
@@ -1346,50 +1498,50 @@ export default function AddProductPage() {
             </div>
           )}
           <div
-                onClick={() => !receiptProcessing && receiptInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-                  receiptProcessing
-                    ? 'border-gray-200 cursor-default'
-                    : 'border-gray-300 cursor-pointer hover:border-blue-400'
-                }`}
-              >
-                {receiptPreview ? (
-                  <img
-                    src={receiptPreview}
-                    alt="Receipt preview"
-                    className="max-h-48 mx-auto rounded-lg object-contain"
-                  />
-                ) : (
-                  <>
-                    <div className="text-5xl mb-3">🧾</div>
-                    <p className="font-medium text-gray-700">Tap to upload receipt photo</p>
-                    <p className="text-sm text-gray-400 mt-1">JPEG or PNG — or use camera</p>
-                  </>
-                )}
-              </div>
-              <input
-                ref={receiptInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files?.[0]) handleReceiptFile(e.target.files[0])
-                }}
+            onClick={() => !receiptProcessing && receiptInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+              receiptProcessing
+                ? 'border-gray-200 cursor-default'
+                : 'border-gray-300 cursor-pointer hover:border-blue-400'
+            }`}
+          >
+            {receiptPreview ? (
+              <img
+                src={receiptPreview}
+                alt="Receipt preview"
+                className="max-h-48 mx-auto rounded-lg object-contain"
               />
+            ) : (
+              <>
+                <div className="text-5xl mb-3">🧾</div>
+                <p className="font-medium text-gray-700">Tap to upload receipt photo</p>
+                <p className="text-sm text-gray-400 mt-1">JPEG or PNG — or use camera</p>
+              </>
+            )}
+          </div>
+          <input
+            ref={receiptInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleReceiptFile(e.target.files[0])
+            }}
+          />
 
-              <ProgressConsole log={receiptLog} isProcessing={receiptProcessing} />
+          <ProgressConsole log={receiptLog} isProcessing={receiptProcessing} />
 
-              {receiptFile && !receiptProcessing && (
-                <Button className="w-full" onClick={handleReceiptImport}>
-                  Parse & Review
-                </Button>
-              )}
-              {receiptError && !receiptProcessing && (
-                <p className="text-sm text-red-500 text-center">
-                  Could not parse receipt. Try a clearer photo.
-                </p>
-              )}
+          {receiptFile && !receiptProcessing && (
+            <Button className="w-full" onClick={handleReceiptImport}>
+              Parse & Review
+            </Button>
+          )}
+          {receiptError && !receiptProcessing && (
+            <p className="text-sm text-red-500 text-center">
+              Could not parse receipt. Try a clearer photo.
+            </p>
+          )}
         </div>
       )}
 
@@ -1459,15 +1611,15 @@ export default function AddProductPage() {
 
           <div className="space-y-3">
             <textarea
-                value={emailContent}
-                onChange={(e) => setEmailContent(e.target.value)}
-                placeholder="Paste the raw email content here…"
-                rows={6}
-                disabled={emailProcessing}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
-              />
+              value={emailContent}
+              onChange={(e) => setEmailContent(e.target.value)}
+              placeholder="Paste the raw email content here…"
+              rows={6}
+              disabled={emailProcessing}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
+            />
 
-              <ProgressConsole log={emailLog} isProcessing={emailProcessing} />
+            <ProgressConsole log={emailLog} isProcessing={emailProcessing} />
 
             {!emailProcessing && (
               <Button

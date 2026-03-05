@@ -2,14 +2,15 @@ package com.neverempty.backend.controller;
 
 import com.neverempty.backend.dto.AddQuantityRequest;
 import com.neverempty.backend.dto.CreateItemRequest;
+import com.neverempty.backend.dto.MarkAsBoughtRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
 import com.neverempty.backend.dto.SuggestMatchesRequest;
-import com.neverempty.backend.dto.SetConsumptionRateRequest;
 import com.neverempty.backend.dto.MatchSuggestion;
 import com.neverempty.backend.model.Item;
 import com.neverempty.backend.model.enums.ItemCategory;
 import com.neverempty.backend.service.ItemMatchService;
 import com.neverempty.backend.service.ItemService;
+import com.neverempty.backend.service.SettingsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,7 @@ public class ItemController {
 
     private final ItemService itemService;
     private final ItemMatchService itemMatchService;
+    private final SettingsService settingsService;
 
     @GetMapping("/items")
     public ResponseEntity<List<Item>> listItems(
@@ -41,7 +43,8 @@ public class ItemController {
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateItemRequest request) {
         var userId = jwt.getSubject();
-        var created = itemService.createItem(userId, request);
+        var calcDate = settingsService.getCalculationDate(userId);
+        var created = itemService.createItem(userId, request, calcDate);
         return ResponseEntity.status(201).body(created);
     }
 
@@ -77,13 +80,16 @@ public class ItemController {
         return ResponseEntity.notFound().build();
     }
 
-    @PostMapping("/items/{itemId}/consumed")
-    public ResponseEntity<Item> markConsumed(
+    @PostMapping("/items/{itemId}/mark-bought")
+    public ResponseEntity<Item> markAsBought(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String itemId,
-            @Valid @RequestBody MarkConsumedRequest request) {
+            @RequestBody(required = false) MarkAsBoughtRequest request) {
         var userId = jwt.getSubject();
-        return itemService.markConsumed(userId, itemId, request)
+        var boughtDate = (request != null && request.boughtDate() != null)
+                ? request.boughtDate()
+                : settingsService.getCalculationDate(userId);
+        return itemService.markAsBought(userId, itemId, boughtDate)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -108,13 +114,14 @@ public class ItemController {
         return ResponseEntity.ok(suggestions);
     }
 
-    @PutMapping("/items/{itemId}/consumption-rate")
-    public ResponseEntity<Item> setConsumptionRate(
+    @PostMapping("/items/{itemId}/depleted")
+    public ResponseEntity<Item> markDepleted(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String itemId,
-            @Valid @RequestBody SetConsumptionRateRequest request) {
+            @RequestBody(required = false) MarkConsumedRequest request) {
         var userId = jwt.getSubject();
-        return itemService.setConsumptionRate(userId, itemId, request.monthlyRate())
+        var req = request != null ? request : new MarkConsumedRequest(null);
+        return itemService.markDepleted(userId, itemId, req)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

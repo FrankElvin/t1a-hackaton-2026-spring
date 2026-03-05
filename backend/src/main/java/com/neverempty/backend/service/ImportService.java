@@ -83,12 +83,14 @@ public class ImportService {
                 var cl = classifiedMap.get(parsed.name());
 
                 ItemCategory category = null;
-                Double monthlyConsumptionRate = null;
+                Double daysToRestock = null;
+                Double usagePerDay = null;
 
                 if (cl != null) {
                     category = mapCategory(cl.category());
                     if (cl.runoutDays() > 0) {
-                        monthlyConsumptionRate = parsed.quantity() * 30.0 / cl.runoutDays();
+                        daysToRestock = (double) cl.runoutDays();
+                        usagePerDay = parsed.quantity() / cl.runoutDays();
                     }
                     onProgress.accept("[" + idx + "/" + total + "] " + parsed.name()
                             + " → " + cl.category() + ", ~" + cl.runoutDays() + " days");
@@ -106,7 +108,8 @@ public class ImportService {
                         .storeId(storeId)
                         .price(parsed.priceAmount())
                         .category(category)
-                        .monthlyConsumptionRate(monthlyConsumptionRate)
+                        .daysToRestock(daysToRestock)
+                        .usagePerDay(usagePerDay)
                         .build());
             } catch (Exception e) {
                 log.warn("Failed to build item for '{}': {}", parsed.name(), e);
