@@ -39,7 +39,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.2
     # start-dev is suitable for demo; for production replace with: start --optimized
-    command: start-dev --import-realm
+    command: start-dev
     restart: unless-stopped
     environment:
       KC_DB: postgres
@@ -52,9 +52,6 @@ services:
       KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-9090}
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
-      KC_PROXY: edge
-    volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     ports:
       - "${KEYCLOAK_PORT:-9090}:8080"
     depends_on:
@@ -81,12 +78,9 @@ services:
       MONGO_DB_NAME: ${MONGO_DB_NAME:-never_empty}
       # Must match the 'iss' claim in tokens (i.e. KC_HOSTNAME — the public URL)
       KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-9090}/realms/${KEYCLOAK_REALM:-neverempty}
-      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-neverempty}/protocol/openid-connect/certs
-
       # Fetch signing keys via internal Docker DNS — bypasses the discovery endpoint,
       # which would return public localhost URLs unreachable from inside the container
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-neverempty}/protocol/openid-connect/certs
-
       BACKEND_PORT: 8080
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://litellm.secondstack.t1a.io/v1}
@@ -118,7 +112,6 @@ services:
         VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-neverempty}
         VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-household-ui}
         VITE_MOCK_AUTH: ${VITE_MOCK_AUTH:-false}
-        VITE_FORWARD_EMAIL: ${GMAIL_IMPERSONATE_EMAIL:-inbox@neverempty.app}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:80"
