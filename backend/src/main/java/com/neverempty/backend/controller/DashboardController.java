@@ -3,6 +3,7 @@ package com.neverempty.backend.controller;
 import com.neverempty.backend.dto.DashboardSummary;
 import com.neverempty.backend.dto.ItemForecast;
 import com.neverempty.backend.service.DashboardService;
+import com.neverempty.backend.service.SettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,10 +18,12 @@ import java.util.List;
 public class DashboardController {
 
     private final DashboardService dashboardService;
+    private final SettingsService settingsService;
 
     @GetMapping("/dashboard")
     public ResponseEntity<DashboardSummary> getDashboard(@AuthenticationPrincipal Jwt jwt) {
         var userId = jwt.getSubject();
+        settingsService.ensureNotificationEmailFromKeycloak(userId, jwt.getClaimAsString("email"));
         return ResponseEntity.ok(dashboardService.getDashboard(userId));
     }
 

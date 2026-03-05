@@ -2,6 +2,7 @@ package com.neverempty.backend.controller;
 
 import com.neverempty.backend.model.Household;
 import com.neverempty.backend.service.HouseholdService;
+import com.neverempty.backend.service.SettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,10 +15,12 @@ import org.springframework.web.bind.annotation.*;
 public class HouseholdController {
 
     private final HouseholdService householdService;
+    private final SettingsService settingsService;
 
     @GetMapping("/household")
     public ResponseEntity<Household> getHousehold(@AuthenticationPrincipal Jwt jwt) {
         var userId = jwt.getSubject();
+        settingsService.ensureNotificationEmailFromKeycloak(userId, jwt.getClaimAsString("email"));
         return householdService.getByUserId(userId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());

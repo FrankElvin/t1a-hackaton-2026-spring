@@ -40,9 +40,11 @@ public class EmailParserService {
 
     public record EmailMessage(
             String id,
+            String threadId,
             String subject,
             String from,
             String date,
+            String messageIdHeader,
             String bodyText,
             String bodyHtml
     ) {}
@@ -125,9 +127,11 @@ public class EmailParserService {
 
             return new EmailMessage(
                     msg.getId(),
-                    headers.getOrDefault("Subject", ""),
-                    headers.getOrDefault("From", ""),
-                    headers.getOrDefault("Date", ""),
+                    msg.getThreadId(),
+                    getHeader(headers, "Subject"),
+                    getHeader(headers, "From"),
+                    getHeader(headers, "Date"),
+                    getHeader(headers, "Message-ID"),
                     body.get("text"),
                     body.get("html")
             );
@@ -174,6 +178,39 @@ public class EmailParserService {
     }
 
     /**
+     * Send a reply to the original message so it appears in the same thread.
+     * Uses In-Reply-To and References headers and threadId for proper threading.
+     */
+    public void sendReply(String to, String subject, String body, String threadId, String inReplyToMessageId) {
+        if (gmail == null) {
+            log.warn("Gmail not initialized, cannot send reply");
+            return;
+        }
+
+        try {
+            var sb = new StringBuilder();
+            sb.append("To: ").append(to).append("\r\n");
+            sb.append("From: ").append(properties.google().gmailImpersonateEmail()).append("\r\n");
+            sb.append("Subject: ").append(subject).append("\r\n");
+            if (inReplyToMessageId != null && !inReplyToMessageId.isBlank()) {
+                sb.append("In-Reply-To: ").append(inReplyToMessageId).append("\r\n");
+                sb.append("References: ").append(inReplyToMessageId).append("\r\n");
+            }
+            sb.append("Content-Type: text/plain; charset=utf-8\r\n\r\n");
+            sb.append(body);
+
+            var raw = Base64.getUrlEncoder().encodeToString(sb.toString().getBytes(StandardCharsets.UTF_8));
+            var message = new Message().setRaw(raw);
+            if (threadId != null && !threadId.isBlank()) {
+                message.setThreadId(threadId);
+            }
+            gmail.users().messages().send("me", message).execute();
+        } catch (Exception e) {
+            log.error("Failed to send reply to {}", to, e);
+        }
+    }
+
+    /**
      * Remove the UNREAD label from a message.
      * Same as gmail_service.py mark_as_read().
      */
@@ -187,6 +224,16 @@ public class EmailParserService {
         } catch (Exception e) {
             log.error("Failed to mark message {} as read", messageId, e);
         }
+    }
+
+    private static String getHeader(Map<String, String> headers, String name) {
+        if (headers == null) return "";
+        for (var e : headers.entrySet()) {
+            if (e.getKey() != null && e.getKey().equalsIgnoreCase(name)) {
+                return e.getValue() != null ? e.getValue() : "";
+            }
+        }
+        return "";
     }
 
     /**
