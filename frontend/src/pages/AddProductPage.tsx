@@ -937,6 +937,7 @@ export default function AddProductPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] })
       queryClient.invalidateQueries({ queryKey: ['forecast'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       navigate('/products')
     },
     onError: () => setSaveError('Failed to save. Please try again.'),
@@ -1019,6 +1020,7 @@ export default function AddProductPage() {
     setReviewIndex(0)
     queryClient.invalidateQueries({ queryKey: ['items'] })
     queryClient.invalidateQueries({ queryKey: ['forecast'] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     navigate('/products')
   }
 
