@@ -3,19 +3,39 @@
 #export USERNAME=
 #export PASSWORD=
 
+export KEYCLOAK_URL_BASE=http://localhost:9090
+export BACKEND_URL_BASE=http://localhost:8081
+
+#export KEYCLOAK_URL_BASE=https://keycloak.t1aclmllmagents.click
+#export BACKEND_URL_BASE=http://t1aclmllmagents.click:8081
+
+export CHECK_DATE=2026-03-25T00:00:00Z
+
 if [[ -z "$USERNAME" ]]; then
   echo "Error: The environment variable USERNAME must be set."
   exit 1
 fi
 
 if [[ -z "$PASSWORD" ]]; then
-  echo "Error: The environment variable USERNAME must be set."
+  echo "Error: The environment variable PASSWORD must be set."
   exit 1
 fi
 
+if [[ -z "$KEYCLOAK_URL_BASE" ]]; then
+  echo "Error: The environment variable KEYCLOAK_URL_BASE must be set."
+  exit 1
+fi
+
+if [[ -z "$BACKEND_URL_BASE" ]]; then
+  echo "Error: The environment variable BACKEND_URL_BASE must be set."
+  exit 1
+fi
+
+echo "Calling app by curl $BACKEND_URL_BASE; user: $USERNAME"
+
 # Step 1 — Get a JWT token from Keycloak
 TOKEN=$(curl -s -X POST \
-  http://localhost:9090/realms/neverempty/protocol/openid-connect/token \
+  $KEYCLOAK_URL_BASE/realms/neverempty/protocol/openid-connect/token \
   -d "grant_type=password" \
   -d "client_id=household-ui" \
   -d "username=$USERNAME" \
@@ -32,12 +52,12 @@ USER_ID=$(echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq -r .sub)
 
 #  Step 3 — Trigger the notification
 #
-curl -s -X POST http://localhost:8081/api/v1/notifications/trigger \
+curl -s -X POST $BACKEND_URL_BASE/api/v1/notifications/trigger \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
     \"userId\": \"$USER_ID\",
-    \"checkDate\": \"2026-03-06T00:00:00Z\",
+    \"checkDate\": \"$CHECK_DATE\",
     \"ignorePrevNotification\": true
   }"
 
