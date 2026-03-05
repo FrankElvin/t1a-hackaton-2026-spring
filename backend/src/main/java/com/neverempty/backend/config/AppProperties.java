@@ -7,7 +7,8 @@ public record AppProperties(
         OpenAi openai,
         Google google,
         Barcode barcode,
-        Notification notification
+        Notification notification,
+        String baseUrl
 ) {
     public record OpenAi(
             String apiKey,

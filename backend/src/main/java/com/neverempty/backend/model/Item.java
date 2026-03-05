@@ -51,6 +51,10 @@ public class Item {
 
     private Double standardPurchaseQuantity;
 
+    @Builder.Default
+    @Field("notified_run_out")
+    private boolean notifiedRunOut = false;
+
     @CreatedDate
     private Instant createdAt;
 
