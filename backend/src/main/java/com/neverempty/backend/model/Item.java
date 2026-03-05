@@ -43,6 +43,10 @@ public class Item {
 
     private Double monthlyConsumptionRate;
 
+    private Boolean autoCalc;
+
+    private String lastBoughtDate;
+
     @CreatedDate
     private Instant createdAt;
 

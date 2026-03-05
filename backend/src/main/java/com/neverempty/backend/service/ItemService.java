@@ -8,6 +8,8 @@ import com.neverempty.backend.repository.ItemRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,6 +44,8 @@ public class ItemService {
                 .price(request.price())
                 .consumerCategory(request.consumerCategory())
                 .monthlyConsumptionRate(request.monthlyConsumptionRate())
+                .autoCalc(request.autoCalc())
+                .lastBoughtDate(request.lastBoughtDate())
                 .build();
         return repository.save(item);
     }
@@ -57,6 +61,8 @@ public class ItemService {
                     existing.setPrice(request.price());
                     existing.setConsumerCategory(request.consumerCategory());
                     existing.setMonthlyConsumptionRate(request.monthlyConsumptionRate());
+                    existing.setAutoCalc(request.autoCalc());
+                    existing.setLastBoughtDate(request.lastBoughtDate());
                     return repository.save(existing);
                 });
     }
@@ -74,8 +80,57 @@ public class ItemService {
         return repository.findByIdAndUserId(itemId, userId)
                 .map(item -> {
                     double consumed = request.quantityConsumed() != null ? request.quantityConsumed() : 0.0;
-                    double newQuantity = item.getCurrentQuantity() - consumed;
-                    item.setCurrentQuantity(Math.max(0, newQuantity));
+
+                    // autoCalc: if fully consumed, update rate based on time since last purchase
+                    if (Boolean.TRUE.equals(item.getAutoCalc())
+                            && item.getLastBoughtDate() != null
+                            && !item.getLastBoughtDate().isBlank()
+                            && item.getCurrentQuantity() > 0
+                            && consumed >= item.getCurrentQuantity()) {
+                        try {
+                            LocalDate purchaseDate = LocalDate.parse(item.getLastBoughtDate());
+                            LocalDate depletedAt = request.depletedAt() != null
+                                    ? request.depletedAt() : LocalDate.now();
+                            long daysDiff = ChronoUnit.DAYS.between(purchaseDate, depletedAt);
+                            if (daysDiff > 0) {
+                                double measuredRate = (item.getCurrentQuantity() / (double) daysDiff) * 30.0;
+                                double existingRate = item.getMonthlyConsumptionRate() != null
+                                        ? item.getMonthlyConsumptionRate() : measuredRate;
+                                item.setMonthlyConsumptionRate((existingRate + measuredRate) / 2.0);
+                            }
+                        } catch (Exception ignored) {
+                            // malformed lastBoughtDate — skip autoCalc
+                        }
+                    }
+
+                    item.setCurrentQuantity(Math.max(0, item.getCurrentQuantity() - consumed));
+                    return repository.save(item);
+                });
+    }
+
+    public Optional<Item> markAsBought(String userId, String itemId, LocalDate boughtDate) {
+        return repository.findByIdAndUserId(itemId, userId)
+                .map(item -> {
+                    // autoCalc: recalculate monthlyConsumptionRate from real purchase interval
+                    if (Boolean.TRUE.equals(item.getAutoCalc())
+                            && item.getLastBoughtDate() != null
+                            && !item.getLastBoughtDate().isBlank()
+                            && item.getCurrentQuantity() > 0) {
+                        try {
+                            LocalDate prevDate = LocalDate.parse(item.getLastBoughtDate());
+                            long daysDiff = ChronoUnit.DAYS.between(prevDate, boughtDate);
+                            if (daysDiff > 0) {
+                                double measuredRate = (item.getCurrentQuantity() / (double) daysDiff) * 30.0;
+                                // Blend with existing rate: average smooths out outlier purchases
+                                double existingRate = item.getMonthlyConsumptionRate() != null
+                                        ? item.getMonthlyConsumptionRate() : measuredRate;
+                                item.setMonthlyConsumptionRate((existingRate + measuredRate) / 2.0);
+                            }
+                        } catch (Exception ignored) {
+                            // malformed lastBoughtDate — skip autoCalc
+                        }
+                    }
+                    item.setLastBoughtDate(boughtDate.toString());
                     return repository.save(item);
                 });
     }

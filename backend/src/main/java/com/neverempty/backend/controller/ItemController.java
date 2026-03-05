@@ -1,11 +1,13 @@
 package com.neverempty.backend.controller;
 
 import com.neverempty.backend.dto.CreateItemRequest;
+import com.neverempty.backend.dto.MarkAsBoughtRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
 import com.neverempty.backend.dto.SetConsumptionRateRequest;
 import com.neverempty.backend.model.Item;
 import com.neverempty.backend.model.enums.ItemCategory;
 import com.neverempty.backend.service.ItemService;
+import com.neverempty.backend.service.SettingsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +23,7 @@ import java.util.List;
 public class ItemController {
 
     private final ItemService itemService;
+    private final SettingsService settingsService;
 
     @GetMapping("/items")
     public ResponseEntity<List<Item>> listItems(
@@ -70,6 +73,21 @@ public class ItemController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/items/{itemId}/mark-bought")
+    public ResponseEntity<Item> markAsBought(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId,
+            @RequestBody(required = false) MarkAsBoughtRequest request) {
+        var userId = jwt.getSubject();
+        // Use provided date, or fall back to user's calculationDate (usually today)
+        var boughtDate = (request != null && request.boughtDate() != null)
+                ? request.boughtDate()
+                : settingsService.getCalculationDate(userId);
+        return itemService.markAsBought(userId, itemId, boughtDate)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/items/{itemId}/consumed")

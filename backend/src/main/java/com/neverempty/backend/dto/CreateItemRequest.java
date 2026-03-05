@@ -13,5 +13,7 @@ public record CreateItemRequest(
         String storeId,
         Double price,
         ConsumerCategory consumerCategory,
-        Double monthlyConsumptionRate
+        Double monthlyConsumptionRate,
+        Boolean autoCalc,
+        String lastBoughtDate
 ) {}

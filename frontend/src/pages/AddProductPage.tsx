@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/axios'
 import keycloak from '@/lib/keycloak'
 import { Button } from '@/components/ui/button'
@@ -204,6 +204,7 @@ async function streamImport(
 
 export default function AddProductPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [method, setMethod] = useState<Method>('manual')
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [prefillBanner, setPrefillBanner] = useState<string | null>(null)
@@ -362,7 +363,11 @@ export default function AddProductPage() {
       if (MOCK_AUTH) return Promise.resolve({ id: crypto.randomUUID(), ...req } as Item)
       return api.post<Item>('/items', req).then((r) => r.data)
     },
-    onSuccess: () => navigate('/products'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['forecast'] })
+      navigate('/products')
+    },
     onError: () => setSaveError('Failed to save. Please try again.'),
   })
 
@@ -653,6 +658,73 @@ export default function AddProductPage() {
             </select>
           </div>
 
+          {/* Monthly usage + forecast toggle */}
+          <div className="space-y-1.5">
+            <Label htmlFor="rate">Monthly usage</Label>
+            <Input
+              id="rate"
+              type="number"
+              min="0"
+              step="any"
+              value={form.monthlyConsumptionRate}
+              onChange={(e) => setForm((p) => ({ ...p, monthlyConsumptionRate: e.target.value }))}
+              placeholder="e.g. 4"
+            />
+          </div>
+
+          {form.monthlyConsumptionRate ? (
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
+                <p className="text-xs text-gray-400">
+                  {form.autoCalc
+                    ? 'Starts with this rate, adjusts based on actual purchases'
+                    : 'Always uses exactly this rate for forecasting'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, autoCalc: !p.autoCalc }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.autoCalc ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.autoCalc ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                  Enable forecasting
+                </p>
+                <p className="text-xs text-gray-400">
+                  {form.forecasting
+                    ? 'AI will estimate your consumption rate'
+                    : 'No forecast — notifications disabled, updates after real usage'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, forecasting: !p.forecasting }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.forecasting ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.forecasting ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
           {/* Additional details — collapsible */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <button
@@ -670,7 +742,6 @@ export default function AddProductPage() {
                         ? CONSUMER_CATEGORY_LABELS[form.consumerCategory as ConsumerCategory]
                         : null,
                       form.price ? `$${form.price}` : null,
-                      form.monthlyConsumptionRate ? `${form.monthlyConsumptionRate}/mo` : null,
                     ]
                       .filter(Boolean)
                       .join(' · ') || 'optional'}
@@ -739,74 +810,6 @@ export default function AddProductPage() {
                     placeholder="0.00"
                   />
                 </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="rate">Monthly usage</Label>
-                  <Input
-                    id="rate"
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={form.monthlyConsumptionRate}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, monthlyConsumptionRate: e.target.value }))
-                    }
-                    placeholder="e.g. 4"
-                  />
-                </div>
-
-                {form.monthlyConsumptionRate ? (
-                  <div className="flex items-center justify-between py-1">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">Adapt to real usage</p>
-                      <p className="text-xs text-gray-400">
-                        {form.autoCalc
-                          ? 'Starts with this rate, adjusts based on actual purchases'
-                          : 'Always uses exactly this rate for forecasting'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setForm((p) => ({ ...p, autoCalc: !p.autoCalc }))}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                        form.autoCalc ? 'bg-blue-600' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                          form.autoCalc ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between py-1">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                        Enable forecasting
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {form.forecasting
-                          ? 'AI will estimate your consumption rate'
-                          : 'No forecast — notifications disabled, updates after real usage'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setForm((p) => ({ ...p, forecasting: !p.forecasting }))}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                        form.forecasting ? 'bg-blue-600' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                          form.forecasting ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -941,7 +944,11 @@ export default function AddProductPage() {
                 >
                   Scan Another
                 </Button>
-                <Button className="flex-1" onClick={() => navigate('/products')}>
+                <Button className="flex-1" onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ['items'] })
+                  queryClient.invalidateQueries({ queryKey: ['forecast'] })
+                  navigate('/products')
+                }}>
                   Done
                 </Button>
               </div>
@@ -1064,7 +1071,11 @@ export default function AddProductPage() {
                 >
                   Import Another
                 </Button>
-                <Button className="flex-1" onClick={() => navigate('/products')}>
+                <Button className="flex-1" onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ['items'] })
+                  queryClient.invalidateQueries({ queryKey: ['forecast'] })
+                  navigate('/products')
+                }}>
                   Done
                 </Button>
               </div>

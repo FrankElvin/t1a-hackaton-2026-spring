@@ -40,7 +40,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600">
             <ShoppingBasket className="w-5 h-5 text-white" />
           </div>
-          <span className="font-semibold text-gray-900">Household</span>
+          <span className="font-semibold text-gray-900">Never Empty</span>
         </div>
 
         {/* Nav items */}
