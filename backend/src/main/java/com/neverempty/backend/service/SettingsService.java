@@ -50,4 +50,25 @@ public class SettingsService {
         repository.save(settings);
         return config;
     }
+
+    /**
+     * Ensures notification email is set from Keycloak when empty.
+     * Called when user makes authenticated requests so email-forward matching works
+     * without requiring explicit notification settings.
+     */
+    public void ensureNotificationEmailFromKeycloak(String userId, String keycloakEmail) {
+        if (keycloakEmail == null || keycloakEmail.isBlank()) return;
+
+        var settings = getSettings(userId);
+        var notif = settings.getNotification();
+        if (notif == null) {
+            settings.setNotification(new UserSettings.NotificationConfig());
+            notif = settings.getNotification();
+        }
+        var currentEmail = notif.getEmail();
+        if (currentEmail == null || currentEmail.isBlank()) {
+            notif.setEmail(keycloakEmail.trim().toLowerCase());
+            repository.save(settings);
+        }
+    }
 }

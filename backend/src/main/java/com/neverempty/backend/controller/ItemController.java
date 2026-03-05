@@ -1,10 +1,14 @@
 package com.neverempty.backend.controller;
 
+import com.neverempty.backend.dto.AddQuantityRequest;
 import com.neverempty.backend.dto.CreateItemRequest;
 import com.neverempty.backend.dto.MarkAsBoughtRequest;
 import com.neverempty.backend.dto.MarkConsumedRequest;
+import com.neverempty.backend.dto.SuggestMatchesRequest;
+import com.neverempty.backend.dto.MatchSuggestion;
 import com.neverempty.backend.model.Item;
 import com.neverempty.backend.model.enums.ItemCategory;
+import com.neverempty.backend.service.ItemMatchService;
 import com.neverempty.backend.service.ItemService;
 import com.neverempty.backend.service.SettingsService;
 import jakarta.validation.Valid;
@@ -22,6 +26,7 @@ import java.util.List;
 public class ItemController {
 
     private final ItemService itemService;
+    private final ItemMatchService itemMatchService;
     private final SettingsService settingsService;
 
     @GetMapping("/items")
@@ -81,13 +86,32 @@ public class ItemController {
             @PathVariable String itemId,
             @RequestBody(required = false) MarkAsBoughtRequest request) {
         var userId = jwt.getSubject();
-        // Use provided date, or fall back to user's calculationDate (usually today)
         var boughtDate = (request != null && request.boughtDate() != null)
                 ? request.boughtDate()
                 : settingsService.getCalculationDate(userId);
         return itemService.markAsBought(userId, itemId, boughtDate)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/items/{itemId}/add-quantity")
+    public ResponseEntity<Item> addQuantity(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String itemId,
+            @Valid @RequestBody AddQuantityRequest request) {
+        var userId = jwt.getSubject();
+        return itemService.addQuantity(userId, itemId, request)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/items/suggest-matches")
+    public ResponseEntity<List<MatchSuggestion>> suggestMatches(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody SuggestMatchesRequest request) {
+        var userId = jwt.getSubject();
+        var suggestions = itemMatchService.suggestMatches(userId, request.productName());
+        return ResponseEntity.ok(suggestions);
     }
 
     @PostMapping("/items/{itemId}/depleted")

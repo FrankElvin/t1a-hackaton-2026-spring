@@ -1,6 +1,7 @@
 package com.neverempty.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.neverempty.backend.dto.ImportBatchResponse;
 import com.neverempty.backend.dto.ImportEmailRequest;
 import com.neverempty.backend.dto.ImportReceiptResponse;
 import com.neverempty.backend.service.ImportService;
@@ -97,6 +98,72 @@ public class ImportController {
                 emitter.complete();
             } catch (Exception e) {
                 log.error("Streaming email import failed", e);
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
+                } catch (IOException ignored) {}
+                emitter.complete();
+            }
+        });
+
+        return emitter;
+    }
+
+    /**
+     * Parse receipt only - creates ImportBatch for user to review products one-by-one.
+     */
+    @PostMapping(value = "/items/import/receipt/parse/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter parseReceiptStream(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam("image") MultipartFile image,
+            @RequestParam(value = "storeId", required = false) String storeId) throws IOException {
+        var userId = jwt.getSubject();
+        var imageBytes = image.getBytes();
+        var emitter = new SseEmitter(180_000L);
+
+        executor.execute(() -> {
+            try {
+                var batch = importService.parseOnlyFromReceipt(userId, imageBytes, storeId, msg -> {
+                    try {
+                        emitter.send(SseEmitter.event().name("progress").data(msg));
+                    } catch (IOException ignored) {}
+                });
+                var response = ImportBatchResponse.from(batch);
+                emitter.send(SseEmitter.event().name("result").data(objectMapper.writeValueAsString(response)));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("Parse receipt stream failed", e);
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
+                } catch (IOException ignored) {}
+                emitter.complete();
+            }
+        });
+
+        return emitter;
+    }
+
+    /**
+     * Parse email only - creates ImportBatch for user to review products one-by-one.
+     */
+    @PostMapping(value = "/items/import/email/parse/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter parseEmailStream(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ImportEmailRequest request) {
+        var userId = jwt.getSubject();
+        var emitter = new SseEmitter(180_000L);
+
+        executor.execute(() -> {
+            try {
+                var batch = importService.parseOnlyFromEmail(userId, request.rawEmail(), msg -> {
+                    try {
+                        emitter.send(SseEmitter.event().name("progress").data(msg));
+                    } catch (IOException ignored) {}
+                });
+                var response = ImportBatchResponse.from(batch);
+                emitter.send(SseEmitter.event().name("result").data(objectMapper.writeValueAsString(response)));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("Parse email stream failed", e);
                 try {
                     emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
                 } catch (IOException ignored) {}
