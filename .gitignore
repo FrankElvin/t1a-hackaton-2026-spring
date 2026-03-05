@@ -4,3 +4,4 @@
 backend/.gradle/
 backend/build/
 google-credentials.json
+frontend/.vite/
