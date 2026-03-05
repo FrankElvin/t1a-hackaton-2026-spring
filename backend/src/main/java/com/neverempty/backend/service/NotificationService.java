@@ -262,7 +262,7 @@ public class NotificationService {
         for (var entry : itemsWithForecast) {
             var item = entry.getKey();
             var forecast = entry.getValue();
-            int days = forecast.daysUntilDepletion();
+            int days = (int) ChronoUnit.DAYS.between(checkDate, forecast.estimatedDepletionDate());
             String urgencyColor = days <= 5 ? "#dc2626" : "#d97706";
             String urgencyLabel = days == 0 ? "today"
                     : days == 1 ? "tomorrow"
