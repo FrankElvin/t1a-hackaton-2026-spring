@@ -43,6 +43,10 @@ public class Item {
 
     private Double monthlyConsumptionRate;
 
+    @Builder.Default
+    @Field("notified_run_out")
+    private boolean notifiedRunOut = false;
+
     @CreatedDate
     private Instant createdAt;
 

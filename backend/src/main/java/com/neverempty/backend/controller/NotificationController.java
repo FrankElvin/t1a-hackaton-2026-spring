@@ -1,5 +1,6 @@
 package com.neverempty.backend.controller;
 
+import com.neverempty.backend.dto.TriggerNotificationRequest;
 import com.neverempty.backend.model.UserSettings;
 import com.neverempty.backend.service.NotificationService;
 import com.neverempty.backend.service.SettingsService;
@@ -44,5 +45,17 @@ public class NotificationController {
             notificationService.sendNotificationEmail(notificationConfig.getEmail(), summary);
         }
         return ResponseEntity.ok(Map.of("status", "digest sent"));
+    }
+
+    /**
+     * Manually trigger item run-out notifications for a given user.
+     * Useful for testing: supports custom check date and bypassing previous-notification flag.
+     */
+    @PostMapping("/notifications/trigger")
+    public ResponseEntity<Map<String, String>> triggerNotification(
+            @RequestBody TriggerNotificationRequest request) {
+        notificationService.processItemNotifications(
+                request.userId(), request.checkDate(), request.ignorePrevNotification());
+        return ResponseEntity.ok(Map.of("status", "triggered"));
     }
 }
