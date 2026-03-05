@@ -6,3 +6,4 @@ backend/build/
 google-credentials.json
 frontend/.vite/
 
+temp/**
