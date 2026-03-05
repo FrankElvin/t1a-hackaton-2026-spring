@@ -31,3 +31,5 @@ app:
     lookup-key: ${BARCODE_LOOKUP_KEY:}
   notification:
     soon-days: ${NOTIFICATION_SOON_DAYS:3}
+  # Poll inbox every 10 seconds for forwarded purchase emails
+  email-poll-interval-ms: ${EMAIL_POLL_INTERVAL_MS:10000}
